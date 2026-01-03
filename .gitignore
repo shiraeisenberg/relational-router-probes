@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Cursor rules (local only)
+.cursor/
+
+# Environment
+.env
+.env.local
+
+# Data (large files)
+data/dailydialog/*.json
+data/dailydialog/*.txt
+data/wikipedia_talk/*.json
+data/wikipedia_talk/*.txt
+data/sotopia/episodes/
+data/meld/*.csv
+data/synthetic/pairs/
+
+# Results (regeneratable)
+results/probes/*.pkl
+results/extractions/*.pt
+results/extractions/*.npy
+
+# Keep structure
+!data/README.md
+!data/*/.gitkeep
+!results/*/.gitkeep
+
+# Model cache
+*.bin
+*.safetensors
+cache/
+.cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
