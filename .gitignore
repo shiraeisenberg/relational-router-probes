@@ -48,6 +48,7 @@ data/wikipedia_talk/*.txt
 data/sotopia/episodes/
 data/meld/*.csv
 data/synthetic/pairs/
+data/synthetic/tension_pairs_intermediate.json
 
 # Results (regeneratable)
 results/probes/*.pkl
@@ -76,6 +77,7 @@ Thumbs.db
 # Logs
 *.log
 logs/
+extraction_*.txt
 
 # pytest
 .pytest_cache/

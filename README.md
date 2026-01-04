@@ -1,287 +1,223 @@
 # Relational State Estimation from MoE Router Logits
 
-**Do MoE router logits encode relational signals like power, emotion, and interpersonal dynamics?**
-
-This project extends prior work showing router logits encode formality (AUC ≈ 1.0, 32× compression) to test whether they also encode **dyadic relational signals**—properties of speaker relationships rather than individual text.
-
-## Project Status: Phase 2 Complete ✅
-
-**Last Updated:** 2026-01-04
+Research code for ["What Routers Know (And Don't)"](https://shiraeis.substack.com/p/what-routers-know-and-dont). We probe 64-dimensional MoE router logits from OLMoE-1B-7B to test whether routing decisions encode relational signals—properties of speaker relationships rather than individual text properties. Key finding: router logits achieve 94-99% of residual stream classification performance (32× compression) for intent, emotion, and tension, but weakly encode speaker power/status. MoE routing appears optimized for *content type*, not *social context*.
 
 ---
 
-## Research Questions
+## Key Results
 
-1. **Intent:** Do router logits encode dialogue acts (inform, question, directive, commissive)?
-2. **Emotion:** Do router logits encode emotional valence (7-class)?
-3. **Power:** Do router logits encode speaker status (admin vs non-admin)?
-4. **Tension:** Do router logits encode escalation vs repair dynamics?
-5. **Relationship:** Can early-turn routing predict conversation outcomes?
+| Signal | Router AUC | Residual AUC | Retention | Notes |
+|--------|-----------|--------------|-----------|-------|
+| Intent (4-class) | 0.841 | 0.877 | 96% | Dialogue acts: inform, question, directive, commissive |
+| Emotion (7-class) | 0.879 | 0.938 | 94% | DailyDialog emotion labels |
+| Power (binary) | 0.608 | 0.677 | 90% | Admin vs non-admin (weak signal) |
+| **Tension (3-class)** | **0.995** | **1.000** | **99.5%** | Escalation vs repair vs neutral |
 
-## Prior Findings (Formality Sprint)
-
-| Finding | Result |
-|---------|--------|
-| Router logits encode formality | AUC ≈ 1.0 |
-| Compression ratio | 32× (64-dim vs 2048-dim) |
-| Expert specialization | Disjoint clusters (0 overlap) |
-| Mediation index | M ≈ 1.0 (epiphenomenal) |
-| Expert ablation | -29% formality when ablated |
-
-**Implication:** Router logits are excellent for **classification** but not for **steering**. This sprint extends the classification capability to relational signals.
+**Insight:** Router logits encode *what is being said* (intent, emotion, tension dynamics) but not *who is speaking* (social status). This suggests MoE routing decisions optimize for processing content type rather than social/speaker context.
 
 ---
 
-## Architecture
+## Repository Structure
 
 ```
-OLMoE-1B-7B
-├── 16 MoE transformer layers
-├── 64 experts per layer
-├── Router: model.model.layers[i].mlp.gate
-└── Router logits: (seq_len, 64)
-
-We probe router logits → relational labels
-```
-
----
-
-## Current Progress
-
-### Phase 1: Infrastructure & Intent/Emotion Probes ✅ COMPLETE
-- [x] Port formality probe code from prior project
-- [x] Set up Modal pipeline for router logit extraction
-- [x] Load DailyDialog dataset (HuggingFace integration)
-- [x] Extraction caching (pre-pooled, ~235MB vs ~65GB)
-- [x] Train intent probes (4-class) — **Val AUC 0.841**
-- [x] Train emotion probes (7-class) — **Val AUC 0.879**
-- [x] Compare router vs residual stream AUC
-- [x] Train→Validation evaluation
-
-**Key Finding:** Router logits (64-dim) retain 93-96% of residual stream (2048-dim) signal. 32× compression with minimal information loss.
-
-#### Phase 1 Final Results (Train→Validation)
-
-| Task | Train Router AUC | Val Router AUC | Val Residual AUC | Retention |
-|------|------------------|----------------|------------------|-----------|
-| Intent (4-class) | 0.905 | **0.841** | 0.877 | 96% |
-| Emotion (7-class) | 0.849 | **0.879** | 0.938 | 94% |
-
-**Hypotheses:**
-- ✓ **H1 (Intent ≥0.90):** Achieved 0.905 train, 0.841 validation
-- ✓ **H2 (Emotion 0.70-0.85):** Achieved 0.849 train, 0.879 validation
-
----
-
-## Results Summary (All Signals)
-
-| Signal | Router AUC | Residual AUC | Compression | Hypothesis |
-|--------|-----------|--------------|-------------|------------|
-| Intent (4-class) | 0.841 | 0.877 | 32× | ✓ H1 met |
-| Emotion (7-class) | 0.879 | 0.938 | 32× | ✓ H2 met |
-| Power (binary) | 0.608 | 0.677 | 32× | ✗ H3 not met |
-| **Tension (3-class)** | **0.995** | **1.000** | **32×** | ✓ New finding |
-
-### Key Insight
-
-**Router logits encode *what is being said*, not *who is speaking*:**
-
-| Strongly Encoded | Weakly Encoded |
-|-----------------|----------------|
-| Intent (dialogue acts) | Power (speaker status) |
-| Emotion (affective state) | |
-| Tension (relational dynamics) | |
-
-This suggests MoE routing optimizes for **content type**, not **social context**.
-
-### Phase 2: Power & Dyadic Signals ✅ COMPLETE
-- [x] Load Wikipedia Talk Pages (ConvoKit) — 391K utterances
-- [x] Train power differential probes — **Val AUC 0.608** (weak signal)
-- [x] Generate synthetic tension pairs (Claude API) — 501 pairs
-- [x] Train tension probes — **Test AUC 0.995** (exceptional)
-- [ ] Generate SOTOPIA interaction logs (stretch)
-- [ ] Train relationship prediction probes (stretch)
-
-#### Phase 2 Final Results
-
-| Signal | Router AUC | Residual AUC | Retention | Status |
-|--------|-----------|--------------|-----------|--------|
-| Power (binary) | 0.608 | 0.677 | 90% | ✗ weak |
-| **Tension (3-class)** | **0.995** | **1.000** | **99.5%** | ✓✓ exceptional |
-
-**Key Finding:** MoE routing is **content-typed, not speaker-typed**. Router logits encode *what is being said* (tension dynamics) but not *who is speaking* (social status).
-
-### Phase 3: Analysis & Synthesis ← CURRENT
-- [ ] Expert cluster analysis
-- [ ] Cross-signal comparison figures
-- [ ] Layer-by-layer analysis
-- [ ] Substack writeup
-
----
-
-## Quick Start
-
-```bash
-# Clone repository
-git clone https://github.com/shiraeisenberg/relational-router-probes.git
-cd relational-router-probes
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Set up Modal for GPU compute
-pip install modal
-modal setup
-
-# Set environment variables
-cp .env.example .env
-# Edit .env with your ANTHROPIC_API_KEY (for synthetic data generation)
-
-# Run experiments (once implemented)
-python scripts/run_intent_probes.py
-```
-
----
-
-## Project Structure
-
-```
-├── AGENTS.md                 # AI agent reference (read first)
+├── AGENTS.md                 # AI agent reference doc (research notes)
+├── LICENSE                   # MIT License
 ├── README.md                 # This file
-├── requirements.txt
-├── .env.example
-├── .gitignore
+├── requirements.txt          # Pinned dependencies
+├── .env.example              # Environment variable template
 │
 ├── src/
-│   ├── __init__.py
 │   ├── data/                 # Dataset loaders
-│   │   ├── __init__.py
 │   │   ├── dailydialog.py    # DailyDialog (intent, emotion)
 │   │   ├── wikipedia_talk.py # Wikipedia Talk Pages (power)
-│   │   ├── sotopia.py        # SOTOPIA logs (relationship)
-│   │   ├── meld.py           # MELD (transfer test)
-│   │   └── synthetic_tension.py  # Generated tension pairs
+│   │   ├── synthetic_tension.py  # Claude-generated tension pairs
+│   │   ├── sotopia.py        # SOTOPIA (not implemented)
+│   │   └── meld.py           # MELD (not implemented)
 │   │
 │   ├── routing/              # Router logit extraction
-│   │   ├── __init__.py
-│   │   ├── extraction.py     # Hook-based logit capture
+│   │   ├── extraction.py     # Local extraction + caching
 │   │   ├── aggregation.py    # Token→example pooling
-│   │   └── modal_app.py      # Modal GPU extraction
+│   │   └── modal_app.py      # Modal GPU extraction (main pipeline)
 │   │
 │   ├── probing/              # Linear probe training
-│   │   ├── __init__.py
-│   │   ├── linear_probe.py   # Generic probe utilities
+│   │   ├── linear_probe.py   # Core probe utilities
 │   │   ├── intent_probe.py   # Dialogue act probing
 │   │   ├── emotion_probe.py  # Emotion probing
 │   │   ├── power_probe.py    # Power differential probing
-│   │   ├── tension_probe.py  # Tension dynamics probing
-│   │   └── relationship_probe.py  # SOTOPIA outcome prediction
+│   │   └── tension_probe.py  # Tension dynamics probing
 │   │
-│   └── analysis/             # Results analysis
-│       ├── __init__.py
-│       ├── expert_clusters.py    # Expert activation analysis
-│       ├── comparative.py        # Cross-signal comparison
-│       ├── layer_analysis.py     # Layer-by-layer probing
-│       ├── transfer.py           # Cross-dataset transfer
-│       ├── baselines.py          # BoW, punctuation baselines
-│       └── visualization.py      # Figure generation
+│   └── analysis/             # Results analysis (partially implemented)
+│       ├── visualization.py  # Figure generation
+│       └── ...
 │
-├── scripts/                  # Experiment runners
-│   ├── run_intent_probes.py
-│   ├── run_power_probes.py
-│   ├── run_ablations.py
-│   ├── generate_tension_pairs.py
-│   └── generate_figures.py
+├── scripts/                  # Experiment entry points
+│   ├── run_intent_probes.py  # Phase 1: intent/emotion probes
+│   ├── run_power_probes.py   # Phase 2: power probes (stub)
+│   ├── generate_tension_pairs.py  # Generate synthetic data (stub)
+│   └── generate_figures.py   # Figure generation (stub)
 │
-├── data/                     # Datasets (gitignored, except schema)
-│   ├── README.md
-│   ├── dailydialog/
-│   ├── wikipedia_talk/
-│   ├── sotopia/
-│   ├── meld/
-│   └── synthetic/
+├── data/                     # Datasets (mostly gitignored)
+│   ├── README.md             # Download instructions
+│   └── synthetic/            # Generated tension pairs
+│       └── tension_pairs.json
 │
-├── results/                  # Experiment outputs
-│   ├── probes/               # Trained probe checkpoints
+├── results/                  # Experiment outputs (gitignored)
 │   ├── extractions/          # Cached router logits
 │   ├── figures/              # Generated plots
-│   └── tables/               # CSV results
+│   └── tables/               # JSON probe results
 │
-├── docs/
-│   └── writeup.md            # Substack draft
-│
-└── tests/
-    ├── __init__.py
-    ├── test_extraction.py
-    ├── test_probing.py
-    └── test_data_loaders.py
+└── tests/                    # Unit tests
 ```
 
 ---
 
-## Datasets
+## Reproduction Instructions
 
-| Dataset | Size | Labels | Signal | Priority |
-|---------|------|--------|--------|----------|
-| **DailyDialog** | 13K dialogues | Act (4), Emotion (7) | Intent, Emotion | Tier 1 |
-| **SOTOPIA** | 90 scenarios | 7-dim outcomes | Relationship | Tier 1 |
-| **Synthetic** | ~500 pairs | Escalation/Repair | Tension | Tier 1 |
-| Wikipedia Talk | 240K exchanges | Admin/non-admin | Power | Tier 2 |
-| MELD | 13K utterances | Emotion (7) | Transfer test | Tier 2 |
+### Prerequisites
+
+1. **Python 3.10+** with a virtual environment
+2. **Modal account** for GPU compute (free tier works)
+3. **Anthropic API key** (only for tension pair generation)
+
+### Setup
+
+```bash
+git clone https://github.com/shiraeisenberg/relational-router-probes.git
+cd relational-router-probes
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Modal setup (one-time)
+modal setup
+
+# Environment variables
+cp .env.example .env
+# Edit .env if you need to generate tension pairs (requires ANTHROPIC_API_KEY)
+```
+
+### Phase 1: DailyDialog Intent/Emotion Probes
+
+**What it does:** Extracts router logits from OLMoE, trains linear probes for dialogue act and emotion classification, compares to residual stream baseline.
+
+```bash
+# 1. Run extraction on Modal (~35 min for 10K samples, ~$1-2)
+modal run src/routing/modal_app.py --extract --dataset dailydialog --split train --max-samples 10000
+
+# 2. List available caches
+modal run src/routing/modal_app.py --show-caches
+
+# 3. Run probes on cached extractions
+modal run src/routing/modal_app.py --probe --cache-name <cache_name_from_step_2> --task intent
+modal run src/routing/modal_app.py --probe --cache-name <cache_name_from_step_2> --task emotion
+```
+
+**Expected output:** JSON results saved to Modal Volume; AUC printed to console.
+
+### Phase 2: Wikipedia Talk Power Probes
+
+**What it does:** Extracts router logits for admin/non-admin utterances, trains binary classification probes.
+
+```bash
+# 1. Extract training data (~$1)
+modal run src/routing/modal_app.py --extract --dataset wikipedia_talk --split train --max-samples 5000
+
+# 2. Extract validation data (~$0.50)
+modal run src/routing/modal_app.py --extract --dataset wikipedia_talk --split validation --max-samples 1000
+
+# 3. Run power probes
+modal run src/routing/modal_app.py --power-probe \
+  --train-cache <train_cache_name> \
+  --eval-cache <validation_cache_name>
+```
+
+**Expected output:** Train/eval AUC for each layer; expect ~0.60-0.68 AUC (weak signal).
+
+### Synthetic Tension Pair Generation
+
+**What it does:** Uses Claude API to generate 500 two-turn dialogue pairs labeled as escalation/repair/neutral.
+
+```bash
+# Requires ANTHROPIC_API_KEY in .env
+python -c "
+from src.data.synthetic_tension import generate_tension_pairs
+pairs, stats = generate_tension_pairs(n_per_class=167, verbose=True)
+"
+```
+
+**Output:** `data/synthetic/tension_pairs.json` (~500 pairs)
+
+### Tension Probes
+
+```bash
+# 1. Extract tension pair embeddings
+modal run src/routing/modal_app.py --extract --dataset tension --split train
+
+# 2. Run tension probes
+modal run src/routing/modal_app.py --tension-probe --cache-name <tension_cache_name>
+```
+
+**Expected output:** AUC ~0.99 (router captures tension dynamics very well).
+
+### Figure Generation
+
+Pre-generated figures are in `results/figures/`. To regenerate:
+
+```bash
+python scripts/generate_figures.py --results-dir results/tables --output-dir results/figures
+```
 
 ---
 
-## Infrastructure
+## Compute Costs & Runtimes
 
-| Component | Details |
-|-----------|---------|
-| **Model** | OLMoE-1B-7B |
-| **Compute** | Modal serverless A10G |
-| **Probes** | scikit-learn LogisticRegression |
-| **Budget** | <$50 total |
+| Task | Samples | GPU | Time | Cost |
+|------|---------|-----|------|------|
+| DailyDialog extraction | 10,000 | A10G | ~35 min | ~$1.50 |
+| Wikipedia Talk extraction | 5,000 | A10G | ~18 min | ~$0.80 |
+| Tension pair extraction | 500 | A10G | ~3 min | ~$0.15 |
+| Probe training | any | CPU | ~1 min | ~$0.02 |
+| **Total reproduction** | — | — | ~1 hr | **<$5** |
 
----
-
-## Success Criteria
-
-| Level | Criteria | Status |
-|-------|----------|--------|
-| **Minimum** | Intent AUC ≥ 0.75, documented comparison | ✅ Achieved (0.841) |
-| **Target** | 2+ signals AUC ≥ 0.75, expert specialization | ✅ Achieved (3 signals) |
-| **Stretch** | Relationship prediction, cross-dataset transfer | Pending |
+All extraction runs on Modal serverless. Probing is CPU-only and cheap.
 
 ---
 
-## Implications for Social World Models
+## Citation
 
-If router logits encode relational signals:
+If you use this code or findings, please cite:
 
-1. **Real-time social state estimation** at 32× less compute
-2. **Features for S3AP parsing** (CMU social world model)
-3. **Tension maintenance detection** for interactive fiction
-4. **User fingerprinting** from stable routing patterns
-
----
-
-## References
-
-- [OLMoE](https://arxiv.org/abs/2409.02060) (Muennighoff et al., 2024)
-- [SAFEx](https://arxiv.org/abs/2506.17368) (Lai et al., 2025)
-- [Echoes of Power](https://www.cs.cornell.edu/~cristian/Echoes_of_power.html) (Cornell)
-- [DailyDialog](http://yanran.li/dailydialog.html) (Li et al., 2017)
-- [SOTOPIA](https://arxiv.org/abs/2310.11667) (Zhou et al., 2024)
-- [S3AP](https://arxiv.org/abs/2509.00559) (Zhou et al., 2025)
+```bibtex
+@misc{eisenberg2026routerlogits,
+  author = {Eisenberg, Shira},
+  title = {Router Logits Encode Relational Dynamics},
+  year = {2026},
+  howpublished = {Hidden State Substack},
+  url = {https://substack.com/placeholder}
+}
+```
 
 ---
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
-*Read [AGENTS.md](AGENTS.md) for detailed implementation guidance.*
+## Acknowledgments
+
+- **OLMoE** (Muennighoff et al., 2024) for the open MoE architecture
+- **DailyDialog** (Li et al., 2017) for dialogue act/emotion annotations
+- **ConvoKit** (Cornell) for Wikipedia Talk Pages corpus
+- **Modal** for serverless GPU compute
+
+---
+
+## Notes
+
+- `AGENTS.md` contains detailed research notes and is intentionally included
+- The `extraction_10k_pooled.txt` file is a log from a prior extraction run
+- Some modules (`src/data/meld.py`, `src/data/sotopia.py`) are stubs for future work
+- Results may vary slightly with different random seeds

@@ -12,14 +12,15 @@ class TestDailyDialogConstants:
     """Test DailyDialog label mappings."""
     
     def test_dialogue_acts_count(self):
-        """Test that we have 4 dialogue acts."""
+        """Test that we have 5 dialogue acts (including __dummy__)."""
         from src.data.dailydialog import DIALOGUE_ACTS
-        assert len(DIALOGUE_ACTS) == 4
+        # 5 entries: 0=__dummy__, 1-4=actual labels
+        assert len(DIALOGUE_ACTS) == 5
     
     def test_dialogue_acts_values(self):
         """Test dialogue act values."""
         from src.data.dailydialog import DIALOGUE_ACTS
-        expected = {"inform", "question", "directive", "commissive"}
+        expected = {"__dummy__", "inform", "question", "directive", "commissive"}
         assert set(DIALOGUE_ACTS.values()) == expected
     
     def test_emotions_count(self):
@@ -233,16 +234,18 @@ class TestTensionPair:
     """Test tension pair data structure."""
     
     def test_tension_labels(self):
-        """Test tension pair labels."""
+        """Test tension pair structure."""
         from src.data.synthetic_tension import TensionPair
         
+        # TensionPair has: pair_id, turn_a, turn_b, label, scenario
         pair = TensionPair(
             pair_id="test",
-            context="A: Hello. B: Hi.",
-            escalation="That's ridiculous!",
-            repair="I understand your point.",
-            neutral="Okay.",
+            turn_a="I don't think that's a good idea.",
+            turn_b="That's ridiculous!",
+            label="escalation",
+            scenario="workplace disagreement",
         )
         
         assert pair.pair_id == "test"
-        assert "ridiculous" in pair.escalation
+        assert pair.label == "escalation"
+        assert "ridiculous" in pair.turn_b

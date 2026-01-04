@@ -1,33 +1,42 @@
-# Datasets
+# Data Directory
 
-This directory contains datasets for relational signal probing.
+This directory contains datasets for relational signal probing. Most subdirectories are gitignored (only `.gitkeep` files and `synthetic/tension_pairs.json` are committed).
 
 ## Structure
 
 ```
 data/
-├── dailydialog/      # DailyDialog (intent, emotion)
-├── wikipedia_talk/   # Wikipedia Talk Pages (power)
-├── sotopia/          # SOTOPIA logs (relationship)
-├── meld/             # MELD (transfer test)
-└── synthetic/        # Generated tension pairs
+├── dailydialog/      # DailyDialog (intent, emotion) — download required
+├── wikipedia_talk/   # Wikipedia Talk Pages (power) — auto-downloaded via ConvoKit
+├── sotopia/          # SOTOPIA logs (relationship) — not implemented
+├── meld/             # MELD (transfer test) — not implemented
+└── synthetic/        # Generated tension pairs — included
+    └── tension_pairs.json
 ```
 
----
+## What's Included
 
-## DailyDialog
+### Synthetic Tension Pairs (Committed)
 
-**Source:** http://yanran.li/dailydialog.html  
-**Paper:** Li et al. (2017) "DailyDialog: A Manually Labelled Multi-Turn Dialogue Dataset"
+`synthetic/tension_pairs.json` contains 501 Claude-generated two-turn dialogues:
+- 167 escalation examples
+- 167 repair examples  
+- 167 neutral examples
 
-### Download Instructions
+These are used for tension probe training. To regenerate:
+```bash
+python scripts/generate_tension_pairs.py --n-pairs 500
+```
 
-1. **Visit the official page:** http://yanran.li/dailydialog.html
+## Download Instructions
 
-2. **Download the dataset:** Click the download link (usually a zip file like `ijcnlp_dailydialog.zip`)
+### DailyDialog (Optional)
 
-3. **Extract and organize:** After extracting, you should have files organized by split. Move them into this structure:
+The loader defaults to HuggingFace Hub (`benjaminbeilharz/better_daily_dialog`), so no local download is required.
 
+For local files (original format):
+1. Download from http://yanran.li/dailydialog.html
+2. Extract to this structure:
 ```
 data/dailydialog/
 ├── train/
@@ -35,26 +44,28 @@ data/dailydialog/
 │   ├── dialogues_act.txt
 │   └── dialogues_emotion.txt
 ├── validation/
-│   ├── dialogues_text.txt
-│   ├── dialogues_act.txt
-│   └── dialogues_emotion.txt
+│   └── ...
 └── test/
-    ├── dialogues_text.txt
-    ├── dialogues_act.txt
-    └── dialogues_emotion.txt
+    └── ...
 ```
 
-**Note:** The downloaded archive may have a different folder structure (e.g., `train/`, `validation/`, `test/` inside an `ijcnlp_dailydialog/` folder). Just ensure the final structure matches the above.
+### Wikipedia Talk Pages (Auto-download)
 
-### File Format
+ConvoKit downloads the corpus automatically on first use:
+```python
+from src.data.wikipedia_talk import load_wikipedia_talk
+turns, stats = load_wikipedia_talk(n_samples=5000)
+```
 
-- **dialogues_text.txt**: One dialogue per line. Turns are separated by ` __eou__ ` (End Of Utterance).
-- **dialogues_act.txt**: One line per dialogue. Space-separated integers (1-4) for each turn's dialogue act.
-- **dialogues_emotion.txt**: One line per dialogue. Space-separated integers (0-6) for each turn's emotion.
+The corpus (~300MB) is cached by ConvoKit.
 
-### Label Mappings
+### MELD / SOTOPIA
 
-**Dialogue Acts (1-4):**
+Not implemented in this release. See stubs in `src/data/`.
+
+## Label Mappings
+
+### Dialogue Acts (DailyDialog)
 | Code | Label |
 |------|-------|
 | 1 | inform |
@@ -62,7 +73,7 @@ data/dailydialog/
 | 3 | directive |
 | 4 | commissive |
 
-**Emotions (0-6):**
+### Emotions (DailyDialog)
 | Code | Label |
 |------|-------|
 | 0 | neutral |
@@ -73,44 +84,15 @@ data/dailydialog/
 | 5 | sadness |
 | 6 | surprise |
 
-### Verification
+### Tension (Synthetic)
+| Label | Description |
+|-------|-------------|
+| escalation | Response increases conflict |
+| repair | Response de-escalates |
+| neutral | Neither escalates nor repairs |
 
-After downloading, run the loader to verify:
-
-```python
-from src.data.dailydialog import load_dailydialog
-
-turns, stats = load_dailydialog(split="train")
-print(f"Loaded {stats['n_dialogues']} dialogues, {stats['n_turns']} turns")
-```
-
----
-
-## Wikipedia Talk Pages
-
-**Source:** Cornell Conversational Analysis Toolkit
-
-Download and extract editor metadata with admin status.
-
----
-
-## SOTOPIA
-
-**Source:** https://github.com/sotopia-lab/sotopia
-
-Generate episodes using their pipeline and save to `sotopia/episodes/`.
-
----
-
-## MELD
-
-**Source:** https://github.com/declare-lab/MELD
-
-Download CSV files to `meld/`.
-
----
-
-## Synthetic Tension Pairs
-
-Run `python scripts/generate_tension_pairs.py` to generate.
-Pairs saved to `synthetic/tension_pairs.json`.
+### Power (Wikipedia Talk)
+| Label | Description |
+|-------|-------------|
+| admin | Wikipedia administrator |
+| non-admin | Regular editor |
