@@ -138,8 +138,12 @@ class OLMoEExtractor:
         batch_size: int = 8,
         layers: Optional[list[int]] = None,
         max_length: int = 512,
+        pooling: str = "mean",
     ) -> dict:
-        """Extract router logits and save directly to Volume.
+        """Extract router logits and save POOLED representations to Volume.
+        
+        Pools immediately during extraction to minimize memory usage.
+        Saves (n_samples, n_layers, dim) instead of (n_samples, n_layers, seq_len, dim).
         
         Args:
             texts: List of text strings to process
@@ -147,8 +151,9 @@ class OLMoEExtractor:
             dataset: Dataset name for cache filename
             split: Split name for cache filename
             batch_size: Batch size for processing
-            layers: Which layers to extract (None = all)
+            layers: Which layers to extract (default: [4, 8, 12, 15])
             max_length: Maximum sequence length
+            pooling: Pooling method (mean, max, last)
             
         Returns:
             Dict with status and cache path (no large arrays)
@@ -158,16 +163,19 @@ class OLMoEExtractor:
         from tqdm import tqdm
         import os
         
+        # Default to probe-relevant layers only
         if layers is None:
-            layers = list(range(self.n_layers))
+            layers = [4, 8, 12, 15]
         
         n_samples = len(texts)
-        print(f"Extracting {n_samples} samples...")
+        n_layers = len(layers)
+        print(f"Extracting {n_samples} samples, {n_layers} layers, pooling={pooling}...")
         
-        # Collect all results
-        router_logits = {}
-        residual_stream = {}
-        token_counts = {}
+        # Pre-allocate POOLED arrays (much smaller!)
+        # Shape: (n_samples, n_layers, dim) instead of (n_samples, n_layers, seq_len, dim)
+        router_pooled = np.zeros((n_samples, n_layers, 64), dtype=np.float32)
+        residual_pooled = np.zeros((n_samples, n_layers, 2048), dtype=np.float32)
+        token_counts = np.zeros(n_samples, dtype=np.int32)
         errors = []
         
         with torch.no_grad():
@@ -193,50 +201,32 @@ class OLMoEExtractor:
                     # Forward pass
                     _ = self.model(**inputs)
                     
-                    n_tokens = inputs.attention_mask.sum().item()
-                    token_counts[sample_id] = n_tokens
+                    n_tokens = int(inputs.attention_mask.sum().item())
+                    token_counts[i] = n_tokens
                     
-                    # Extract router logits for requested layers
-                    router_logits[sample_id] = {}
-                    residual_stream[sample_id] = {}
-                    
-                    for layer in layers:
+                    # Pool immediately for each layer
+                    for j, layer in enumerate(layers):
                         if layer in self.captured_router:
-                            router = self.captured_router[layer].float().numpy()
-                            router_logits[sample_id][layer] = router
+                            router = self.captured_router[layer].float()  # (seq_len, 64)
+                            if pooling == "mean":
+                                router_pooled[i, j] = router[:n_tokens].mean(dim=0).numpy()
+                            elif pooling == "max":
+                                router_pooled[i, j] = router[:n_tokens].max(dim=0).values.numpy()
+                            elif pooling == "last":
+                                router_pooled[i, j] = router[n_tokens - 1].numpy()
                         
                         if layer in self.captured_residual:
-                            residual = self.captured_residual[layer][0].float().numpy()
-                            residual_stream[sample_id][layer] = residual
+                            residual = self.captured_residual[layer][0].float()  # (seq_len, 2048)
+                            if pooling == "mean":
+                                residual_pooled[i, j] = residual[:n_tokens].mean(dim=0).numpy()
+                            elif pooling == "max":
+                                residual_pooled[i, j] = residual[:n_tokens].max(dim=0).values.numpy()
+                            elif pooling == "last":
+                                residual_pooled[i, j] = residual[n_tokens - 1].numpy()
                             
                 except Exception as e:
                     print(f"Error on sample {sample_id}: {e}")
                     errors.append({"sample_id": sample_id, "error": str(e)})
-        
-        # Compute max sequence length
-        max_seq = max(token_counts.values()) if token_counts else 0
-        
-        # Build padded arrays
-        print("Building padded arrays...")
-        n_layers = len(layers)
-        router_array = np.zeros((n_samples, n_layers, max_seq, 64), dtype=np.float32)
-        residual_array = np.zeros((n_samples, n_layers, max_seq, 2048), dtype=np.float32)
-        token_count_array = np.zeros(n_samples, dtype=np.int32)
-        
-        for i, sample_id in enumerate(sample_ids):
-            if sample_id in token_counts:
-                token_count_array[i] = token_counts[sample_id]
-                
-                for j, layer in enumerate(layers):
-                    if sample_id in router_logits and layer in router_logits[sample_id]:
-                        router = router_logits[sample_id][layer]
-                        seq_len = min(router.shape[0], max_seq)
-                        router_array[i, j, :seq_len] = router[:seq_len]
-                    
-                    if sample_id in residual_stream and layer in residual_stream[sample_id]:
-                        residual = residual_stream[sample_id][layer]
-                        seq_len = min(residual.shape[0], max_seq)
-                        residual_array[i, j, :seq_len] = residual[:seq_len]
         
         # Build metadata
         metadata = {
@@ -245,7 +235,7 @@ class OLMoEExtractor:
             "n_samples": n_samples,
             "layers_extracted": layers,
             "max_length": max_length,
-            "max_seq_in_batch": max_seq,
+            "pooling": pooling,
             "dataset": dataset,
             "split": split,
             "sample_ids": sample_ids,
@@ -254,17 +244,23 @@ class OLMoEExtractor:
         
         # Save to Volume
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        cache_name = f"{dataset}_{split}_{timestamp}.npz"
+        cache_name = f"{dataset}_{split}_{pooling}_{timestamp}.npz"
         cache_path = f"{EXTRACTION_DIR}/{cache_name}"
         
         os.makedirs(EXTRACTION_DIR, exist_ok=True)
         
+        # Calculate expected size
+        router_size_mb = router_pooled.nbytes / 1024 / 1024
+        residual_size_mb = residual_pooled.nbytes / 1024 / 1024
         print(f"Saving to {cache_path}...")
+        print(f"  Router: {router_pooled.shape} = {router_size_mb:.1f} MB")
+        print(f"  Residual: {residual_pooled.shape} = {residual_size_mb:.1f} MB")
+        
         np.savez_compressed(
             cache_path,
-            router_logits=router_array,
-            residual_stream=residual_array,
-            token_counts=token_count_array,
+            router_logits_pooled=router_pooled,  # (n_samples, n_layers, 64)
+            residual_pooled=residual_pooled,      # (n_samples, n_layers, 2048)
+            token_counts=token_counts,
             metadata=json.dumps(metadata),
         )
         
@@ -274,7 +270,7 @@ class OLMoEExtractor:
         # Commit volume to persist
         extraction_volume.commit()
         
-        print(f"Saved {cache_name} ({file_size_mb:.1f} MB)")
+        print(f"Saved {cache_name} ({file_size_mb:.1f} MB compressed)")
         
         return {
             "status": "success",
@@ -282,7 +278,7 @@ class OLMoEExtractor:
             "cache_path": cache_path,
             "n_samples": n_samples,
             "n_layers": n_layers,
-            "max_seq_len": max_seq,
+            "pooling": pooling,
             "file_size_mb": file_size_mb,
             "n_errors": len(errors),
             "errors": errors[:10] if errors else [],  # Only return first 10 errors
@@ -292,22 +288,22 @@ class OLMoEExtractor:
 @app.function(
     image=image,
     cpu=4,  # Probing doesn't need GPU
-    memory=16384,  # 16GB RAM for loading large caches
+    memory=4096,  # 4GB RAM is enough for pre-pooled data
     timeout=1800,
     volumes={EXTRACTION_DIR: extraction_volume},
 )
 def run_probes(
     cache_name: str,
     layers: list[int] = [4, 8, 12, 15],
-    pooling_methods: list[str] = ["mean"],
     task: str = "intent",
 ) -> dict:
     """Run linear probes on cached extractions.
     
+    Note: Data is pre-pooled during extraction, so no pooling arg needed.
+    
     Args:
         cache_name: Name of cache file in extraction volume
         layers: Which layers to probe
-        pooling_methods: Which pooling methods to test
         task: Task name (intent, emotion)
         
     Returns:
@@ -322,16 +318,20 @@ def run_probes(
     print(f"Loading cache from {cache_path}...")
     data = np.load(cache_path, allow_pickle=True)
     
-    router_logits = data["router_logits"]
-    residual_stream = data["residual_stream"]
+    # New format: pre-pooled arrays
+    router_pooled = data["router_logits_pooled"]  # (n_samples, n_layers, 64)
+    residual_pooled = data["residual_pooled"]      # (n_samples, n_layers, 2048)
     token_counts = data["token_counts"]
     metadata = json.loads(str(data["metadata"]))
     
     sample_ids = metadata["sample_ids"]
     all_layers = metadata["layers_extracted"]
+    pooling_method = metadata.get("pooling", "mean")
     n_samples = len(sample_ids)
     
-    print(f"Loaded {n_samples} samples, layers: {all_layers}")
+    print(f"Loaded {n_samples} samples, layers: {all_layers}, pooling: {pooling_method}")
+    print(f"  Router shape: {router_pooled.shape}")
+    print(f"  Residual shape: {residual_pooled.shape}")
     
     # Load labels from HuggingFace
     from datasets import load_dataset
@@ -341,7 +341,6 @@ def run_probes(
     hf_dataset = load_dataset("benjaminbeilharz/better_daily_dialog", split=metadata["split"])
     
     # Build turn_id to label mapping
-    # Schema: dialog_id, utterance, turn_type (1-4), emotion (0-6)
     dialogues = defaultdict(list)
     for example in hf_dataset:
         dialogues[example["dialog_id"]].append({
@@ -350,15 +349,13 @@ def run_probes(
         })
     
     # Map sample_ids to labels
-    # sample_id format: daily_{split}_{dialog_idx:05d}_t{turn_idx:02d}
     labels = []
     valid_indices = []
     
     for i, sample_id in enumerate(sample_ids):
-        # Parse sample_id
         parts = sample_id.split("_")
         dialog_idx = int(parts[2])
-        turn_idx = int(parts[3][1:])  # Remove 't' prefix
+        turn_idx = int(parts[3][1:])
         
         dialog_ids = sorted(dialogues.keys())
         if dialog_idx < len(dialog_ids):
@@ -366,21 +363,23 @@ def run_probes(
             if turn_idx < len(dialogues[dialog_id]):
                 if task == "intent":
                     label = dialogues[dialog_id][turn_idx]["act"]
-                    # Map 0->1 (dummy to inform)
                     if label == 0:
                         label = 1
-                    labels.append(label - 1)  # Convert to 0-indexed
-                else:  # emotion
+                    labels.append(label - 1)
+                else:
                     labels.append(dialogues[dialog_id][turn_idx]["emotion"])
                 valid_indices.append(i)
     
     labels = np.array(labels)
     print(f"Matched {len(labels)} samples with labels")
     
+    # Print class distribution
+    unique, counts = np.unique(labels, return_counts=True)
+    print(f"Class distribution: {dict(zip(unique.tolist(), counts.tolist()))}")
+    
     # Filter to valid indices
-    router_logits = router_logits[valid_indices]
-    residual_stream = residual_stream[valid_indices]
-    token_counts = token_counts[valid_indices]
+    router_pooled = router_pooled[valid_indices]
+    residual_pooled = residual_pooled[valid_indices]
     
     # Train/test split (80/20)
     n_valid = len(labels)
@@ -392,20 +391,6 @@ def run_probes(
     
     y_train, y_test = labels[train_idx], labels[test_idx]
     
-    # Pooling function
-    def pool(arr, counts, method):
-        """Pool (n_samples, seq_len, dim) -> (n_samples, dim)"""
-        pooled = []
-        for i in range(len(arr)):
-            n_tokens = counts[i]
-            if method == "mean":
-                pooled.append(arr[i, :n_tokens].mean(axis=0))
-            elif method == "max":
-                pooled.append(arr[i, :n_tokens].max(axis=0))
-            elif method == "last":
-                pooled.append(arr[i, n_tokens-1])
-        return np.stack(pooled)
-    
     results = []
     
     for layer in layers:
@@ -415,70 +400,70 @@ def run_probes(
             
         layer_idx = all_layers.index(layer)
         
-        for pooling in pooling_methods:
-            print(f"  Layer {layer}, pooling={pooling}...")
-            
-            # Pool router logits
-            X_router = pool(router_logits[:, layer_idx], token_counts, pooling)
-            X_train_r = X_router[train_idx]
-            X_test_r = X_router[test_idx]
-            
-            # Train router probe
-            probe_r = LogisticRegression(max_iter=1000, solver="lbfgs", random_state=42)
-            probe_r.fit(X_train_r, y_train)
-            y_pred_r = probe_r.predict(X_test_r)
-            y_prob_r = probe_r.predict_proba(X_test_r)
-            
-            try:
-                auc_r = roc_auc_score(y_test, y_prob_r, multi_class="ovr", average="macro")
-            except:
-                auc_r = 0.0
-            
-            results.append({
-                "task": task,
-                "probe_target": "router_logits",
-                "layer": layer,
-                "pooling": pooling,
-                "auc": float(auc_r),
-                "accuracy": float(accuracy_score(y_test, y_pred_r)),
-                "f1_macro": float(f1_score(y_test, y_pred_r, average="macro")),
-                "n_train": len(y_train),
-                "n_test": len(y_test),
-            })
-            print(f"    Router AUC: {auc_r:.3f}, Acc: {accuracy_score(y_test, y_pred_r):.3f}")
-            
-            # Pool residual stream
-            X_residual = pool(residual_stream[:, layer_idx], token_counts, pooling)
-            X_train_s = X_residual[train_idx]
-            X_test_s = X_residual[test_idx]
-            
-            # Train residual probe
-            probe_s = LogisticRegression(max_iter=1000, solver="lbfgs", random_state=42)
-            probe_s.fit(X_train_s, y_train)
-            y_pred_s = probe_s.predict(X_test_s)
-            y_prob_s = probe_s.predict_proba(X_test_s)
-            
-            try:
-                auc_s = roc_auc_score(y_test, y_prob_s, multi_class="ovr", average="macro")
-            except:
-                auc_s = 0.0
-            
-            results.append({
-                "task": task,
-                "probe_target": "residual_stream",
-                "layer": layer,
-                "pooling": pooling,
-                "auc": float(auc_s),
-                "accuracy": float(accuracy_score(y_test, y_pred_s)),
-                "f1_macro": float(f1_score(y_test, y_pred_s, average="macro")),
-                "n_train": len(y_train),
-                "n_test": len(y_test),
-            })
-            print(f"    Residual AUC: {auc_s:.3f}, Acc: {accuracy_score(y_test, y_pred_s):.3f}")
+        print(f"  Layer {layer}...")
+        
+        # Data is already pooled - just index by layer
+        X_router = router_pooled[:, layer_idx]  # (n_samples, 64)
+        X_train_r = X_router[train_idx]
+        X_test_r = X_router[test_idx]
+        
+        # Train router probe
+        probe_r = LogisticRegression(max_iter=1000, solver="lbfgs", random_state=42)
+        probe_r.fit(X_train_r, y_train)
+        y_pred_r = probe_r.predict(X_test_r)
+        y_prob_r = probe_r.predict_proba(X_test_r)
+        
+        try:
+            auc_r = roc_auc_score(y_test, y_prob_r, multi_class="ovr", average="macro")
+        except:
+            auc_r = 0.0
+        
+        results.append({
+            "task": task,
+            "probe_target": "router_logits",
+            "layer": layer,
+            "pooling": pooling_method,
+            "auc": float(auc_r),
+            "accuracy": float(accuracy_score(y_test, y_pred_r)),
+            "f1_macro": float(f1_score(y_test, y_pred_r, average="macro")),
+            "n_train": len(y_train),
+            "n_test": len(y_test),
+        })
+        print(f"    Router AUC: {auc_r:.3f}, Acc: {accuracy_score(y_test, y_pred_r):.3f}")
+        
+        # Residual stream - already pooled
+        X_residual = residual_pooled[:, layer_idx]  # (n_samples, 2048)
+        X_train_s = X_residual[train_idx]
+        X_test_s = X_residual[test_idx]
+        
+        # Train residual probe
+        probe_s = LogisticRegression(max_iter=1000, solver="lbfgs", random_state=42)
+        probe_s.fit(X_train_s, y_train)
+        y_pred_s = probe_s.predict(X_test_s)
+        y_prob_s = probe_s.predict_proba(X_test_s)
+        
+        try:
+            auc_s = roc_auc_score(y_test, y_prob_s, multi_class="ovr", average="macro")
+        except:
+            auc_s = 0.0
+        
+        results.append({
+            "task": task,
+            "probe_target": "residual_stream",
+            "layer": layer,
+            "pooling": pooling_method,
+            "auc": float(auc_s),
+            "accuracy": float(accuracy_score(y_test, y_pred_s)),
+            "f1_macro": float(f1_score(y_test, y_pred_s, average="macro")),
+            "n_train": len(y_train),
+            "n_test": len(y_test),
+        })
+        print(f"    Residual AUC: {auc_s:.3f}, Acc: {accuracy_score(y_test, y_pred_s):.3f}")
     
     return {
         "task": task,
         "cache_name": cache_name,
+        "pooling": pooling_method,
         "n_samples": n_valid,
         "n_train": len(y_train),
         "n_test": len(y_test),
@@ -531,14 +516,13 @@ def main(
     dry_run: bool = False,
     extract: bool = False,
     probe: bool = False,
-    list: bool = False,
+    show_caches: bool = False,
     dataset: str = "dailydialog",
     split: str = "train",
-    batch_size: int = 8,
+    batch_size: int = 32,
     max_samples: Optional[int] = None,
     cache_name: Optional[str] = None,
     layers: str = "4,8,12,15",
-    pooling: str = "mean",
     task: str = "intent",
 ):
     """CLI entrypoint for extraction and probing.
@@ -547,21 +531,19 @@ def main(
         dry_run: Test with 2 samples
         extract: Run extraction and save to Volume
         probe: Run probes on cached extraction
-        list: List cached extractions
+        show_caches: List cached extractions
         dataset: Dataset name
         split: Split name
         batch_size: Batch size for extraction
         max_samples: Limit number of samples
         cache_name: Cache file to probe (for --probe)
-        layers: Comma-separated layer indices
-        pooling: Comma-separated pooling methods
+        layers: Comma-separated layer indices (default: 4,8,12,15)
         task: Task name (intent, emotion)
     """
     layer_list = [int(x.strip()) for x in layers.split(",")]
-    pooling_list = [x.strip() for x in pooling.split(",")]
     
     # List caches
-    if list:
+    if show_caches:
         print("Cached extractions:")
         caches = list_caches.remote()
         if not caches:
@@ -637,7 +619,7 @@ def main(
             sample_ids = sample_ids[:max_samples]
             print(f"Limited to {max_samples} samples")
         
-        # Run extraction
+        # Run extraction with specified layers (default [4, 8, 12, 15])
         extractor = OLMoEExtractor()
         result = extractor.extract_and_save.remote(
             texts=texts,
@@ -645,7 +627,8 @@ def main(
             dataset=dataset,
             split=split,
             batch_size=batch_size,
-            layers=None,  # Extract all layers
+            layers=layer_list,
+            pooling="mean",  # Pre-pool with mean during extraction
         )
         
         print("\n" + "=" * 60)
@@ -668,20 +651,18 @@ def main(
     if probe:
         if not cache_name:
             print("Error: --cache-name required for --probe")
-            print("Run with --list-caches to see available caches")
+            print("Run with --show-caches to see available caches")
             return
         
         print("=" * 60)
         print(f"PROBING: {cache_name}")
         print("=" * 60)
         print(f"  Layers: {layer_list}")
-        print(f"  Pooling: {pooling_list}")
         print(f"  Task: {task}")
         
         result = run_probes.remote(
             cache_name=cache_name,
             layers=layer_list,
-            pooling_methods=pooling_list,
             task=task,
         )
         
@@ -711,5 +692,5 @@ def main(
     print("Usage:")
     print("  modal run src/routing/modal_app.py --dry-run")
     print("  modal run src/routing/modal_app.py --extract --dataset dailydialog --split train")
-    print("  modal run src/routing/modal_app.py --list")
+    print("  modal run src/routing/modal_app.py --show-caches")
     print("  modal run src/routing/modal_app.py --probe --cache-name <name>")
