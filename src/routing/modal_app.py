@@ -620,6 +620,161 @@ def run_power_probes(
 
 @app.function(
     image=image,
+    cpu=4,
+    memory=4096,
+    timeout=1800,
+    volumes={EXTRACTION_DIR: extraction_volume},
+)
+def run_tension_probes(
+    cache_name: str,
+    layers: list[int] = [4, 8, 12, 15],
+) -> dict:
+    """Run tension probes (escalation vs repair vs neutral).
+    
+    Uses labels stored in cache metadata during extraction.
+    3-class classification.
+    
+    Args:
+        cache_name: Cache filename (tension_train_*.npz)
+        layers: Which layers to probe
+        
+    Returns:
+        Dict with probe results
+    """
+    import numpy as np
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import roc_auc_score, accuracy_score, f1_score
+    from sklearn.model_selection import train_test_split
+    
+    cache_path = f"{EXTRACTION_DIR}/{cache_name}"
+    print(f"Loading cache from {cache_path}...")
+    data = np.load(cache_path, allow_pickle=True)
+    
+    router_pooled = data["router_logits_pooled"]
+    residual_pooled = data["residual_pooled"]
+    metadata = json.loads(str(data["metadata"]))
+    
+    if "labels" not in metadata:
+        return {"error": "No labels found in cache. Re-extract with labels."}
+    
+    labels = np.array(metadata["labels"])
+    all_layers = metadata["layers_extracted"]
+    pooling = metadata.get("pooling", "mean")
+    
+    # Label names
+    label_names = {0: "escalation", 1: "repair", 2: "neutral"}
+    unique, counts = np.unique(labels, return_counts=True)
+    print(f"Labels: {dict(zip([label_names[u] for u in unique], counts.tolist()))}")
+    
+    # Train/test split (80/20)
+    n_samples = len(labels)
+    train_idx, test_idx = train_test_split(
+        np.arange(n_samples), test_size=0.2, random_state=42, stratify=labels
+    )
+    
+    y_train, y_test = labels[train_idx], labels[test_idx]
+    print(f"Train: {len(y_train)}, Test: {len(y_test)}")
+    
+    results = []
+    
+    for layer in layers:
+        if layer not in all_layers:
+            print(f"Layer {layer} not in cache, skipping")
+            continue
+        
+        layer_idx = all_layers.index(layer)
+        print(f"\n  Layer {layer}...")
+        
+        # Router logits probe
+        X_router = router_pooled[:, layer_idx]
+        X_train_r, X_test_r = X_router[train_idx], X_router[test_idx]
+        
+        probe_r = LogisticRegression(max_iter=1000, solver="lbfgs", random_state=42)
+        probe_r.fit(X_train_r, y_train)
+        
+        y_pred_r = probe_r.predict(X_test_r)
+        y_prob_r = probe_r.predict_proba(X_test_r)
+        
+        try:
+            auc_r = roc_auc_score(y_test, y_prob_r, multi_class="ovr", average="macro")
+        except:
+            auc_r = 0.0
+        
+        acc_r = accuracy_score(y_test, y_pred_r)
+        f1_r = f1_score(y_test, y_pred_r, average="macro")
+        
+        # Also compute train AUC
+        y_prob_train_r = probe_r.predict_proba(X_train_r)
+        try:
+            train_auc_r = roc_auc_score(y_train, y_prob_train_r, multi_class="ovr", average="macro")
+        except:
+            train_auc_r = 0.0
+        
+        results.append({
+            "task": "tension",
+            "probe_target": "router_logits",
+            "layer": layer,
+            "pooling": pooling,
+            "train_auc": float(train_auc_r),
+            "test_auc": float(auc_r),
+            "test_accuracy": float(acc_r),
+            "test_f1": float(f1_r),
+            "n_train": len(y_train),
+            "n_test": len(y_test),
+        })
+        print(f"    Router: Train AUC={train_auc_r:.3f}, Test AUC={auc_r:.3f}, Acc={acc_r:.3f}")
+        
+        # Residual stream probe
+        X_residual = residual_pooled[:, layer_idx]
+        X_train_s, X_test_s = X_residual[train_idx], X_residual[test_idx]
+        
+        probe_s = LogisticRegression(max_iter=1000, solver="lbfgs", random_state=42)
+        probe_s.fit(X_train_s, y_train)
+        
+        y_pred_s = probe_s.predict(X_test_s)
+        y_prob_s = probe_s.predict_proba(X_test_s)
+        
+        try:
+            auc_s = roc_auc_score(y_test, y_prob_s, multi_class="ovr", average="macro")
+        except:
+            auc_s = 0.0
+        
+        acc_s = accuracy_score(y_test, y_pred_s)
+        f1_s = f1_score(y_test, y_pred_s, average="macro")
+        
+        # Train AUC
+        y_prob_train_s = probe_s.predict_proba(X_train_s)
+        try:
+            train_auc_s = roc_auc_score(y_train, y_prob_train_s, multi_class="ovr", average="macro")
+        except:
+            train_auc_s = 0.0
+        
+        results.append({
+            "task": "tension",
+            "probe_target": "residual_stream",
+            "layer": layer,
+            "pooling": pooling,
+            "train_auc": float(train_auc_s),
+            "test_auc": float(auc_s),
+            "test_accuracy": float(acc_s),
+            "test_f1": float(f1_s),
+            "n_train": len(y_train),
+            "n_test": len(y_test),
+        })
+        print(f"    Residual: Train AUC={train_auc_s:.3f}, Test AUC={auc_s:.3f}, Acc={acc_s:.3f}")
+    
+    return {
+        "task": "tension",
+        "cache_name": cache_name,
+        "pooling": pooling,
+        "n_train": len(y_train),
+        "n_test": len(y_test),
+        "results": results,
+    }
+
+
+@app.function(
+    image=image,
     volumes={EXTRACTION_DIR: extraction_volume},
     timeout=60,
 )
@@ -664,6 +819,7 @@ def main(
     extract: bool = False,
     probe: bool = False,
     power_probe: bool = False,
+    tension_probe: bool = False,
     show_caches: bool = False,
     dataset: str = "dailydialog",
     split: str = "train",
@@ -768,6 +924,27 @@ def main(
             
             print(f"Prepared {len(texts)} samples from {stats.n_conversations} conversations")
             print(f"  Labels: {sum(labels)} admin, {len(labels) - sum(labels)} non-admin")
+        
+        elif dataset == "tension":
+            # Load synthetic tension pairs
+            import sys
+            sys.path.insert(0, ".")
+            from src.data.synthetic_tension import load_tension_pairs
+            
+            print(f"Loading synthetic tension pairs...")
+            pairs, stats = load_tension_pairs(verbose=True)
+            
+            # Concatenate turn_a + turn_b as input text
+            texts = [f"{p.turn_a} {p.turn_b}" for p in pairs]
+            sample_ids = [p.pair_id for p in pairs]
+            
+            # Labels: escalation=0, repair=1, neutral=2
+            label_map = {"escalation": 0, "repair": 1, "neutral": 2}
+            labels = [label_map[p.label] for p in pairs]
+            
+            print(f"Prepared {len(texts)} samples")
+            label_counts = {k: labels.count(v) for k, v in label_map.items()}
+            print(f"  Labels: {label_counts}")
             
         else:  # Default: dailydialog
             from datasets import load_dataset
@@ -885,6 +1062,61 @@ def main(
         
         return
     
+    # Tension probe (escalation vs repair vs neutral)
+    if tension_probe:
+        if not cache_name:
+            print("Error: --cache-name required for --tension-probe")
+            print("Run with --show-caches to see available caches")
+            return
+        
+        print("=" * 60)
+        print("TENSION PROBES (Escalation vs Repair vs Neutral)")
+        print("=" * 60)
+        print(f"  Cache: {cache_name}")
+        print(f"  Layers: {layer_list}")
+        
+        result = run_tension_probes.remote(
+            cache_name=cache_name,
+            layers=layer_list,
+        )
+        
+        if "error" in result:
+            print(f"\nError: {result['error']}")
+            return
+        
+        print("\n" + "=" * 60)
+        print("TENSION PROBE RESULTS")
+        print("=" * 60)
+        print(f"\n{'Target':<20} {'Layer':<8} {'Train AUC':<12} {'Test AUC':<12} {'Test Acc':<10}")
+        print("-" * 62)
+        
+        for r in result["results"]:
+            print(f"{r['probe_target']:<20} {r['layer']:<8} "
+                  f"{r['train_auc']:<12.3f} {r['test_auc']:<12.3f} {r['test_accuracy']:<10.3f}")
+        
+        # Find best router AUC
+        router_results = [r for r in result["results"] if r["probe_target"] == "router_logits"]
+        if router_results:
+            best_router = max(router_results, key=lambda x: x["test_auc"])
+            print(f"\nBest router Test AUC: {best_router['test_auc']:.3f} (layer {best_router['layer']})")
+            
+            if best_router['test_auc'] >= 0.65:
+                print("✓ Tension probe AUC ≥ 0.65")
+            else:
+                print("✗ Tension probe AUC < 0.65")
+        
+        # Find best residual AUC
+        residual_results = [r for r in result["results"] if r["probe_target"] == "residual_stream"]
+        if residual_results:
+            best_residual = max(residual_results, key=lambda x: x["test_auc"])
+            print(f"Best residual Test AUC: {best_residual['test_auc']:.3f} (layer {best_residual['layer']})")
+            
+            if router_results and best_router:
+                retention = best_router['test_auc'] / best_residual['test_auc'] * 100 if best_residual['test_auc'] > 0 else 0
+                print(f"Router retention: {retention:.1f}% of residual signal")
+        
+        return
+    
     # Probe (intent/emotion)
     if probe:
         if not cache_name:
@@ -934,3 +1166,4 @@ def main(
     print("  modal run src/routing/modal_app.py --show-caches")
     print("  modal run src/routing/modal_app.py --probe --cache-name <name>")
     print("  modal run src/routing/modal_app.py --power-probe --train-cache <train.npz> --eval-cache <eval.npz>")
+    print("  modal run src/routing/modal_app.py --tension-probe --cache-name <tension.npz>")

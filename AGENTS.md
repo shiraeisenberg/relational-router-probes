@@ -237,14 +237,14 @@ class ExtractionCache:
 - [ ] Analyze expert clusters for power (do power-linked experts overlap with formality experts?)
 - [ ] Generate SOTOPIA interaction logs via their pipeline
 - [ ] Train dyadic outcome probes: router logits at turn N → relationship score at end
-- [ ] Generate synthetic tension/repair pairs (analogous to formal/informal pairs)
-- [ ] Train tension probes: router logits → {escalation, repair, neutral}
+- [x] Generate synthetic tension/repair pairs (analogous to formal/informal pairs)
+- [x] Train tension probes: router logits → {escalation, repair, neutral}
 - [ ] Expert cluster analysis for each signal type
 
 #### Exit Criteria
 - [x] Power probe AUC documented *(achieved 0.608 — below target)*
 - [ ] Expert overlap analysis: power vs formality vs intent
-- [ ] Tension probe AUC on synthetic data
+- [x] Tension probe AUC on synthetic data *(achieved 0.995 — exceptional)*
 - [ ] SOTOPIA relationship prediction AUC (stretch)
 
 #### Key Files
@@ -329,21 +329,53 @@ class ExpertClusterAnalysis:
 
 Router logits encode speaker power weakly compared to intent/emotion. Routing appears optimized for **"what is being said"** (dialogue act, emotional valence) rather than **"who is speaking"** (social status). This suggests MoE routing is **content-typed, not speaker-typed**.
 
-### Signal Comparison Summary
+---
 
-| Signal | Router Eval AUC | Residual Eval AUC | Retention |
-|--------|-----------------|-------------------|-----------|
-| Intent (4-class) | 0.841 | 0.877 | 96% |
-| Emotion (7-class) | 0.879 | 0.938 | 94% |
-| **Power (binary)** | **0.608** | 0.677 | **90%** |
+## Phase 2 Results: Tension Probes (Synthetic, 501 pairs)
+
+*501 pairs generated via Claude API, balanced 3-class: escalation/repair/neutral*
+
+### Tension Classification (3-class)
+
+| Target | Layer | Train AUC | Test AUC | Test Acc |
+|--------|-------|-----------|----------|----------|
+| router_logits | 4 | 0.996 | 0.991 | 0.931 |
+| **router_logits** | **8** | **0.997** | **0.995** | **0.941** |
+| router_logits | 12 | 0.997 | 0.983 | 0.931 |
+| router_logits | 15 | 0.989 | 0.978 | 0.881 |
+| residual_stream | 4 | 0.961 | 0.947 | 0.851 |
+| residual_stream | 8 | 0.990 | 0.986 | 0.911 |
+| **residual_stream** | **12** | **1.000** | **1.000** | **1.000** |
+| residual_stream | 15 | 1.000 | 1.000 | 1.000 |
+
+**Status:** ✓✓ Exceptional (far exceeds 0.65 bar)
 
 ### Key Observations
 
-1. **Power is the weakest signal** — Router AUC 0.608 vs 0.841 for intent
-2. **Residual stream shows overfitting** — Train 0.878 → Eval 0.668 at layer 15
-3. **Router peaks at layer 4** for power (vs layer 8 for intent/emotion)
-4. **Retention drops** — Router retains 90% of residual signal (vs 94-96% for intent/emotion)
-5. **Power may require context** — Single-turn text features insufficient for speaker status
+1. **Router achieves near-perfect classification** — AUC 0.995 at layer 8
+2. **Router BEATS residual at early layers** — Layer 4: Router 0.991 > Residual 0.947
+3. **99.5% retention** — Router captures virtually all tension signal
+4. **No overfitting** — Train and test AUCs nearly identical
+5. **Best layer is 8** — Same as emotion, suggesting similar encoding
+
+---
+
+## Cross-Signal Summary (All Phase 1 & 2 Results)
+
+| Signal | Router AUC | Residual AUC | Retention | Hypothesis |
+|--------|-----------|--------------|-----------|------------|
+| Intent (4-class) | 0.841 | 0.877 | 96% | ✓ H1 met |
+| Emotion (7-class) | 0.879 | 0.938 | 94% | ✓ H2 met |
+| Power (binary) | 0.608 | 0.677 | 90% | ✗ H3 not met |
+| **Tension (3-class)** | **0.995** | **1.000** | **99.5%** | ✓ New finding |
+
+### Key Insight
+
+MoE routing is **content-typed, not speaker-typed**:
+- **Strongly encoded:** Intent, emotion, tension (what is being said)
+- **Weakly encoded:** Power/status (who is speaking)
+
+Router logits capture relational dynamics in text (escalation patterns, repair strategies) but not speaker identity. This suggests routing decisions optimize for processing content type, not social context.
 
 ---
 
