@@ -1,0 +1,47 @@
+{
+  "pairs": [
+    {
+      "pair_id": "tension_0001",
+      "turn_a": "I noticed the quarterly report had some errors in the budget section. Could we go over it together before the meeting?",
+      "turn_b": "Oh great, here we go again with your perfectionist micromanaging. Maybe if you actually trusted your team to do their jobs instead of nitpicking everything, we'd get more done around here.",
+      "label": "escalation",
+      "scenario": "workplace conflict"
+    },
+    {
+      "pair_id": "tension_0002",
+      "turn_a": "I'm feeling pretty overwhelmed with wedding planning. There are so many decisions to make and I could really use some help choosing between venues.",
+      "turn_b": "Seriously? You're stressed about picking pretty locations and flower colors? Try working 60 hours a week to pay for this whole thing while you obsess over centerpieces. Some of us have real problems.",
+      "label": "escalation",
+      "scenario": "engaged couple planning"
+    },
+    {
+      "pair_id": "tension_0003",
+      "turn_a": "I can't believe you scheduled that client meeting during my presentation without asking me first. Now I have to choose between two important commitments.",
+      "turn_b": "You're absolutely right, and I apologize. I should have checked with you before booking anything. Let me contact the client right now to see if we can move it to later in the day so you can do your presentation first.",
+      "label": "repair",
+      "scenario": "workplace scheduling conflict"
+    },
+    {
+      "pair_id": "tension_0004",
+      "turn_a": "You always leave your dishes in the sink for days! I'm tired of being the only one who cleans around here.",
+      "turn_b": "I hear you, and you're right to be frustrated. I've been really stressed with work lately, but that's not an excuse for leaving everything to you. How about we set up a cleaning schedule so we're both contributing equally?",
+      "label": "repair",
+      "scenario": "roommate household responsibilities"
+    },
+    {
+      "pair_id": "tension_0005",
+      "turn_a": "Hey, do you know what time the meeting with the marketing team is scheduled for tomorrow?",
+      "turn_b": "It's at 2:30 PM in conference room B. They sent out the calendar invite this morning.",
+      "label": "neutral",
+      "scenario": "workplace inquiry"
+    },
+    {
+      "pair_id": "tension_0006",
+      "turn_a": "I'm thinking about getting a new laptop but I'm not sure which brand to go with. Any suggestions?",
+      "turn_b": "I've been using a Dell for the past three years and it's been pretty reliable. The battery life is decent and it handles most tasks well.",
+      "label": "neutral",
+      "scenario": "casual conversation"
+    }
+  ],
+  "errors": 0
+}

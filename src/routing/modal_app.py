@@ -139,6 +139,7 @@ class OLMoEExtractor:
         layers: Optional[list[int]] = None,
         max_length: int = 512,
         pooling: str = "mean",
+        labels: Optional[list[int]] = None,  # Optional labels to store in cache
     ) -> dict:
         """Extract router logits and save POOLED representations to Volume.
         
@@ -241,6 +242,10 @@ class OLMoEExtractor:
             "sample_ids": sample_ids,
             "n_errors": len(errors),
         }
+        
+        # Include labels if provided (for power probes, etc.)
+        if labels is not None:
+            metadata["labels"] = labels
         
         # Save to Volume
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -473,6 +478,148 @@ def run_probes(
 
 @app.function(
     image=image,
+    cpu=4,
+    memory=4096,
+    timeout=1800,
+    volumes={EXTRACTION_DIR: extraction_volume},
+)
+def run_power_probes(
+    train_cache: str,
+    eval_cache: str,
+    layers: list[int] = [4, 8, 12, 15],
+) -> dict:
+    """Run power differential probes (admin vs non-admin).
+    
+    Uses labels stored in cache metadata during extraction.
+    
+    Args:
+        train_cache: Training cache filename (wikipedia_talk_train_*.npz)
+        eval_cache: Evaluation cache filename (wikipedia_talk_validation_*.npz)
+        layers: Which layers to probe
+        
+    Returns:
+        Dict with probe results
+    """
+    import numpy as np
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import roc_auc_score, accuracy_score, f1_score
+    
+    # Load training data
+    train_path = f"{EXTRACTION_DIR}/{train_cache}"
+    print(f"Loading training cache from {train_path}...")
+    train_data = np.load(train_path, allow_pickle=True)
+    
+    train_router = train_data["router_logits_pooled"]
+    train_residual = train_data["residual_pooled"]
+    train_meta = json.loads(str(train_data["metadata"]))
+    
+    if "labels" not in train_meta:
+        return {"error": "No labels found in training cache. Re-extract with labels."}
+    
+    train_labels = np.array(train_meta["labels"])
+    all_layers = train_meta["layers_extracted"]
+    pooling = train_meta.get("pooling", "mean")
+    
+    print(f"  Training: {len(train_labels)} samples, {sum(train_labels)} admin, {len(train_labels) - sum(train_labels)} non-admin")
+    
+    # Load evaluation data
+    eval_path = f"{EXTRACTION_DIR}/{eval_cache}"
+    print(f"Loading evaluation cache from {eval_path}...")
+    eval_data = np.load(eval_path, allow_pickle=True)
+    
+    eval_router = eval_data["router_logits_pooled"]
+    eval_residual = eval_data["residual_pooled"]
+    eval_meta = json.loads(str(eval_data["metadata"]))
+    
+    if "labels" not in eval_meta:
+        return {"error": "No labels found in evaluation cache. Re-extract with labels."}
+    
+    eval_labels = np.array(eval_meta["labels"])
+    print(f"  Evaluation: {len(eval_labels)} samples, {sum(eval_labels)} admin, {len(eval_labels) - sum(eval_labels)} non-admin")
+    
+    results = []
+    
+    for layer in layers:
+        if layer not in all_layers:
+            print(f"Layer {layer} not in cache, skipping")
+            continue
+        
+        layer_idx = all_layers.index(layer)
+        print(f"\n  Layer {layer}...")
+        
+        # Router logits probe
+        X_train_r = train_router[:, layer_idx]
+        X_eval_r = eval_router[:, layer_idx]
+        
+        probe_r = LogisticRegression(max_iter=1000, solver="lbfgs", random_state=42)
+        probe_r.fit(X_train_r, train_labels)
+        
+        # Train metrics
+        y_prob_train_r = probe_r.predict_proba(X_train_r)[:, 1]
+        train_auc_r = roc_auc_score(train_labels, y_prob_train_r)
+        
+        # Eval metrics
+        y_pred_r = probe_r.predict(X_eval_r)
+        y_prob_r = probe_r.predict_proba(X_eval_r)[:, 1]
+        eval_auc_r = roc_auc_score(eval_labels, y_prob_r)
+        eval_acc_r = accuracy_score(eval_labels, y_pred_r)
+        
+        results.append({
+            "task": "power",
+            "probe_target": "router_logits",
+            "layer": layer,
+            "pooling": pooling,
+            "train_auc": float(train_auc_r),
+            "eval_auc": float(eval_auc_r),
+            "eval_accuracy": float(eval_acc_r),
+            "n_train": len(train_labels),
+            "n_eval": len(eval_labels),
+        })
+        print(f"    Router: Train AUC={train_auc_r:.3f}, Eval AUC={eval_auc_r:.3f}, Eval Acc={eval_acc_r:.3f}")
+        
+        # Residual stream probe
+        X_train_s = train_residual[:, layer_idx]
+        X_eval_s = eval_residual[:, layer_idx]
+        
+        probe_s = LogisticRegression(max_iter=1000, solver="lbfgs", random_state=42)
+        probe_s.fit(X_train_s, train_labels)
+        
+        # Train metrics
+        y_prob_train_s = probe_s.predict_proba(X_train_s)[:, 1]
+        train_auc_s = roc_auc_score(train_labels, y_prob_train_s)
+        
+        # Eval metrics
+        y_pred_s = probe_s.predict(X_eval_s)
+        y_prob_s = probe_s.predict_proba(X_eval_s)[:, 1]
+        eval_auc_s = roc_auc_score(eval_labels, y_prob_s)
+        eval_acc_s = accuracy_score(eval_labels, y_pred_s)
+        
+        results.append({
+            "task": "power",
+            "probe_target": "residual_stream",
+            "layer": layer,
+            "pooling": pooling,
+            "train_auc": float(train_auc_s),
+            "eval_auc": float(eval_auc_s),
+            "eval_accuracy": float(eval_acc_s),
+            "n_train": len(train_labels),
+            "n_eval": len(eval_labels),
+        })
+        print(f"    Residual: Train AUC={train_auc_s:.3f}, Eval AUC={eval_auc_s:.3f}, Eval Acc={eval_acc_s:.3f}")
+    
+    return {
+        "task": "power",
+        "train_cache": train_cache,
+        "eval_cache": eval_cache,
+        "pooling": pooling,
+        "n_train": len(train_labels),
+        "n_eval": len(eval_labels),
+        "results": results,
+    }
+
+
+@app.function(
+    image=image,
     volumes={EXTRACTION_DIR: extraction_volume},
     timeout=60,
 )
@@ -516,12 +663,15 @@ def main(
     dry_run: bool = False,
     extract: bool = False,
     probe: bool = False,
+    power_probe: bool = False,
     show_caches: bool = False,
     dataset: str = "dailydialog",
     split: str = "train",
     batch_size: int = 32,
     max_samples: Optional[int] = None,
     cache_name: Optional[str] = None,
+    train_cache: Optional[str] = None,
+    eval_cache: Optional[str] = None,
     layers: str = "4,8,12,15",
     task: str = "intent",
 ):
@@ -530,13 +680,16 @@ def main(
     Args:
         dry_run: Test with 2 samples
         extract: Run extraction and save to Volume
-        probe: Run probes on cached extraction
+        probe: Run probes on cached extraction (intent/emotion)
+        power_probe: Run power probes (admin vs non-admin)
         show_caches: List cached extractions
         dataset: Dataset name
         split: Split name
         batch_size: Batch size for extraction
         max_samples: Limit number of samples
         cache_name: Cache file to probe (for --probe)
+        train_cache: Training cache for --power-probe
+        eval_cache: Evaluation cache for --power-probe
         layers: Comma-separated layer indices (default: 4,8,12,15)
         task: Task name (intent, emotion)
     """
@@ -611,9 +764,10 @@ def main(
             
             texts = [t.text for t in turns]
             sample_ids = [t.turn_id for t in turns]
-            labels = [1 if t.is_admin else 0 for t in turns]
+            labels = [1 if t.is_admin else 0 for t in turns]  # Power labels: 1=admin, 0=non-admin
             
             print(f"Prepared {len(texts)} samples from {stats.n_conversations} conversations")
+            print(f"  Labels: {sum(labels)} admin, {len(labels) - sum(labels)} non-admin")
             
         else:  # Default: dailydialog
             from datasets import load_dataset
@@ -643,15 +797,20 @@ def main(
         
         # Run extraction with specified layers (default [4, 8, 12, 15])
         extractor = OLMoEExtractor()
-        result = extractor.extract_and_save.remote(
-            texts=texts,
-            sample_ids=sample_ids,
-            dataset=dataset,
-            split=split,
-            batch_size=batch_size,
-            layers=layer_list,
-            pooling="mean",  # Pre-pool with mean during extraction
-        )
+        # Pass labels if available (for power probes, etc.)
+        extract_kwargs = {
+            "texts": texts,
+            "sample_ids": sample_ids,
+            "dataset": dataset,
+            "split": split,
+            "batch_size": batch_size,
+            "layers": layer_list,
+            "pooling": "mean",  # Pre-pool with mean during extraction
+        }
+        if labels:
+            extract_kwargs["labels"] = labels
+        
+        result = extractor.extract_and_save.remote(**extract_kwargs)
         
         print("\n" + "=" * 60)
         print("EXTRACTION COMPLETE")
@@ -669,7 +828,64 @@ def main(
         
         return
     
-    # Probe
+    # Power probe (admin vs non-admin)
+    if power_probe:
+        if not train_cache or not eval_cache:
+            print("Error: --train-cache and --eval-cache required for --power-probe")
+            print("Run with --show-caches to see available caches")
+            return
+        
+        print("=" * 60)
+        print("POWER PROBES (Admin vs Non-Admin)")
+        print("=" * 60)
+        print(f"  Train cache: {train_cache}")
+        print(f"  Eval cache: {eval_cache}")
+        print(f"  Layers: {layer_list}")
+        
+        result = run_power_probes.remote(
+            train_cache=train_cache,
+            eval_cache=eval_cache,
+            layers=layer_list,
+        )
+        
+        if "error" in result:
+            print(f"\nError: {result['error']}")
+            return
+        
+        print("\n" + "=" * 60)
+        print("POWER PROBE RESULTS")
+        print("=" * 60)
+        print(f"\n{'Target':<20} {'Layer':<8} {'Train AUC':<12} {'Eval AUC':<12} {'Eval Acc':<10}")
+        print("-" * 62)
+        
+        for r in result["results"]:
+            print(f"{r['probe_target']:<20} {r['layer']:<8} "
+                  f"{r['train_auc']:<12.3f} {r['eval_auc']:<12.3f} {r['eval_accuracy']:<10.3f}")
+        
+        # Find best router AUC
+        router_results = [r for r in result["results"] if r["probe_target"] == "router_logits"]
+        if router_results:
+            best_router = max(router_results, key=lambda x: x["eval_auc"])
+            print(f"\nBest router Eval AUC: {best_router['eval_auc']:.3f} (layer {best_router['layer']})")
+            
+            if best_router['eval_auc'] >= 0.65:
+                print("✓ H3 CONFIRMED: Power probe AUC ≥ 0.65")
+            else:
+                print("✗ H3 NOT MET: Power probe AUC < 0.65")
+        
+        # Find best residual AUC for comparison
+        residual_results = [r for r in result["results"] if r["probe_target"] == "residual_stream"]
+        if residual_results:
+            best_residual = max(residual_results, key=lambda x: x["eval_auc"])
+            print(f"Best residual Eval AUC: {best_residual['eval_auc']:.3f} (layer {best_residual['layer']})")
+            
+            if best_router:
+                retention = best_router['eval_auc'] / best_residual['eval_auc'] * 100 if best_residual['eval_auc'] > 0 else 0
+                print(f"Router retention: {retention:.1f}% of residual signal")
+        
+        return
+    
+    # Probe (intent/emotion)
     if probe:
         if not cache_name:
             print("Error: --cache-name required for --probe")
@@ -717,3 +933,4 @@ def main(
     print("  modal run src/routing/modal_app.py --extract --dataset wikipedia_talk --split train --max-samples 5000")
     print("  modal run src/routing/modal_app.py --show-caches")
     print("  modal run src/routing/modal_app.py --probe --cache-name <name>")
+    print("  modal run src/routing/modal_app.py --power-probe --train-cache <train.npz> --eval-cache <eval.npz>")

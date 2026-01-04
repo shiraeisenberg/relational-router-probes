@@ -232,8 +232,8 @@ class ExtractionCache:
 **Goal:** Test whether routing encodes relational properties of dyads, not just individual text properties.
 
 #### Tasks
-- [ ] Load Wikipedia Talk Pages dataset (admin/non-admin labels)
-- [ ] Train power differential probes: router logits → {high-status, low-status}
+- [x] Load Wikipedia Talk Pages dataset (admin/non-admin labels)
+- [x] Train power differential probes: router logits → {high-status, low-status}
 - [ ] Analyze expert clusters for power (do power-linked experts overlap with formality experts?)
 - [ ] Generate SOTOPIA interaction logs via their pipeline
 - [ ] Train dyadic outcome probes: router logits at turn N → relationship score at end
@@ -242,7 +242,7 @@ class ExtractionCache:
 - [ ] Expert cluster analysis for each signal type
 
 #### Exit Criteria
-- [ ] Power probe AUC documented
+- [x] Power probe AUC documented *(achieved 0.608 — below target)*
 - [ ] Expert overlap analysis: power vs formality vs intent
 - [ ] Tension probe AUC on synthetic data
 - [ ] SOTOPIA relationship prediction AUC (stretch)
@@ -301,6 +301,49 @@ class ExpertClusterAnalysis:
     activation_scores: dict[int, float]  # Expert ID → mean activation
     overlap_with: dict[str, float]  # Other signal → Jaccard overlap
 ```
+
+---
+
+## Phase 2 Results: Power Probes (Wikipedia Talk)
+
+*Train: 5K samples, Validation: 1K samples, balanced 50/50 admin/non-admin*
+
+### Power Classification (Binary: Admin vs Non-Admin)
+
+| Target | Layer | Train AUC | Eval AUC | Eval Acc |
+|--------|-------|-----------|----------|----------|
+| router_logits | 4 | 0.647 | **0.608** | 0.569 |
+| router_logits | 8 | 0.640 | 0.587 | 0.555 |
+| router_logits | 12 | 0.641 | 0.594 | 0.566 |
+| router_logits | 15 | 0.645 | 0.588 | 0.562 |
+| residual_stream | 4 | 0.660 | 0.631 | 0.586 |
+| residual_stream | 8 | 0.716 | 0.666 | 0.607 |
+| residual_stream | 12 | 0.818 | **0.677** | 0.623 |
+| residual_stream | 15 | 0.878 | 0.668 | 0.624 |
+
+### H3 Status: ❌ Not Met
+
+**Target:** AUC ≥ 0.65 | **Achieved:** 0.608 (router), 0.677 (residual)
+
+### Interpretation
+
+Router logits encode speaker power weakly compared to intent/emotion. Routing appears optimized for **"what is being said"** (dialogue act, emotional valence) rather than **"who is speaking"** (social status). This suggests MoE routing is **content-typed, not speaker-typed**.
+
+### Signal Comparison Summary
+
+| Signal | Router Eval AUC | Residual Eval AUC | Retention |
+|--------|-----------------|-------------------|-----------|
+| Intent (4-class) | 0.841 | 0.877 | 96% |
+| Emotion (7-class) | 0.879 | 0.938 | 94% |
+| **Power (binary)** | **0.608** | 0.677 | **90%** |
+
+### Key Observations
+
+1. **Power is the weakest signal** — Router AUC 0.608 vs 0.841 for intent
+2. **Residual stream shows overfitting** — Train 0.878 → Eval 0.668 at layer 15
+3. **Router peaks at layer 4** for power (vs layer 8 for intent/emotion)
+4. **Retention drops** — Router retains 90% of residual signal (vs 94-96% for intent/emotion)
+5. **Power may require context** — Single-turn text features insufficient for speaker status
 
 ---
 
@@ -542,6 +585,7 @@ def compute_expert_overlap(assoc_a: dict, assoc_b: dict, top_k: int = 5) -> floa
 
 ### H3 (Exploratory): Power differential encodes
 **Prediction:** Power probe AUC ≥ 0.65 on Wikipedia Talk.
+**Result:** ❌ Not met — achieved 0.608 (router), 0.677 (residual)
 
 ### H4 (High Risk): Relationship prediction from early turns
 **Prediction:** Some signal (AUC > 0.55) for SOTOPIA outcomes.
@@ -549,7 +593,7 @@ def compute_expert_overlap(assoc_a: dict, assoc_b: dict, top_k: int = 5) -> floa
 ### Null Result Interpretations
 - **Intent doesn't encode:** Routing more sensitive to surface than semantic
 - **Emotion doesn't encode:** Emotion in attention, not FFN routing
-- **Power doesn't encode:** Power requires cross-turn modeling
+- **Power doesn't encode:** ✓ Confirmed — power requires cross-turn modeling or speaker identity
 - **Relationship prediction fails:** Routing too local for longitudinal dynamics
 
 ---
