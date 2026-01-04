@@ -590,34 +590,56 @@ def main(
         print(f"EXTRACTION: {dataset}/{split}")
         print("=" * 60)
         
-        # Load data from HuggingFace
-        from datasets import load_dataset
-        from collections import defaultdict
-        
-        print(f"Loading {dataset} from HuggingFace...")
-        hf_dataset = load_dataset("benjaminbeilharz/better_daily_dialog", split=split)
-        
-        # Group by dialog_id
-        dialogues = defaultdict(list)
-        for example in hf_dataset:
-            dialogues[example["dialog_id"]].append(example["utterance"])
-        
-        # Build texts and sample_ids
         texts = []
         sample_ids = []
+        labels = []  # Store labels for later probing
         
-        for dialog_idx, dialog_id in enumerate(sorted(dialogues.keys())):
-            for turn_idx, text in enumerate(dialogues[dialog_id]):
-                sample_id = f"daily_{split}_{dialog_idx:05d}_t{turn_idx:02d}"
-                texts.append(text.strip())
-                sample_ids.append(sample_id)
-        
-        print(f"Prepared {len(texts)} samples from {len(dialogues)} dialogues")
-        
-        if max_samples:
-            texts = texts[:max_samples]
-            sample_ids = sample_ids[:max_samples]
-            print(f"Limited to {max_samples} samples")
+        if dataset == "wikipedia_talk":
+            # Load Wikipedia Talk Pages via local loader (uses ConvoKit)
+            import sys
+            sys.path.insert(0, ".")
+            from src.data.wikipedia_talk import load_wikipedia_talk
+            
+            print(f"Loading Wikipedia Talk via ConvoKit...")
+            n_to_load = max_samples if max_samples else 10000
+            turns, stats = load_wikipedia_talk(
+                n_samples=n_to_load,
+                balanced=True,
+                split=split,
+                verbose=True,
+            )
+            
+            texts = [t.text for t in turns]
+            sample_ids = [t.turn_id for t in turns]
+            labels = [1 if t.is_admin else 0 for t in turns]
+            
+            print(f"Prepared {len(texts)} samples from {stats.n_conversations} conversations")
+            
+        else:  # Default: dailydialog
+            from datasets import load_dataset
+            from collections import defaultdict
+            
+            print(f"Loading {dataset} from HuggingFace...")
+            hf_dataset = load_dataset("benjaminbeilharz/better_daily_dialog", split=split)
+            
+            # Group by dialog_id
+            dialogues = defaultdict(list)
+            for example in hf_dataset:
+                dialogues[example["dialog_id"]].append(example["utterance"])
+            
+            # Build texts and sample_ids
+            for dialog_idx, dialog_id in enumerate(sorted(dialogues.keys())):
+                for turn_idx, text in enumerate(dialogues[dialog_id]):
+                    sample_id = f"daily_{split}_{dialog_idx:05d}_t{turn_idx:02d}"
+                    texts.append(text.strip())
+                    sample_ids.append(sample_id)
+            
+            print(f"Prepared {len(texts)} samples from {len(dialogues)} dialogues")
+            
+            if max_samples:
+                texts = texts[:max_samples]
+                sample_ids = sample_ids[:max_samples]
+                print(f"Limited to {max_samples} samples")
         
         # Run extraction with specified layers (default [4, 8, 12, 15])
         extractor = OLMoEExtractor()
@@ -692,5 +714,6 @@ def main(
     print("Usage:")
     print("  modal run src/routing/modal_app.py --dry-run")
     print("  modal run src/routing/modal_app.py --extract --dataset dailydialog --split train")
+    print("  modal run src/routing/modal_app.py --extract --dataset wikipedia_talk --split train --max-samples 5000")
     print("  modal run src/routing/modal_app.py --show-caches")
     print("  modal run src/routing/modal_app.py --probe --cache-name <name>")
