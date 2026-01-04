@@ -1,0 +1,354 @@
+[
+  {
+    "task": "intent",
+    "probe_target": "router_logits",
+    "layer": 4,
+    "pooling": "mean",
+    "auc": 0.6510416666666667,
+    "accuracy": 0.75,
+    "f1_macro": 0.39230769230769236,
+    "confusion_matrix": [
+      [
+        10,
+        2,
+        0,
+        0
+      ],
+      [
+        1,
+        5,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ]
+    ],
+    "n_train": 80,
+    "n_test": 20,
+    "trained_at": "2026-01-03T19:48:54.039644",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "residual_stream",
+    "layer": 4,
+    "pooling": "mean",
+    "auc": 0.5853696741854637,
+    "accuracy": 0.6,
+    "f1_macro": 0.2980769230769231,
+    "confusion_matrix": [
+      [
+        9,
+        3,
+        0,
+        0
+      ],
+      [
+        3,
+        3,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ]
+    ],
+    "n_train": 80,
+    "n_test": 20,
+    "trained_at": "2026-01-03T19:48:54.077121",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "router_logits",
+    "layer": 8,
+    "pooling": "mean",
+    "auc": 0.6355537280701754,
+    "accuracy": 0.7,
+    "f1_macro": 0.3798076923076923,
+    "confusion_matrix": [
+      [
+        9,
+        2,
+        1,
+        0
+      ],
+      [
+        1,
+        5,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ]
+    ],
+    "n_train": 80,
+    "n_test": 20,
+    "trained_at": "2026-01-03T19:48:54.096724",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "residual_stream",
+    "layer": 8,
+    "pooling": "mean",
+    "auc": 0.6352208646616542,
+    "accuracy": 0.6,
+    "f1_macro": 0.2980769230769231,
+    "confusion_matrix": [
+      [
+        9,
+        3,
+        0,
+        0
+      ],
+      [
+        3,
+        3,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ]
+    ],
+    "n_train": 80,
+    "n_test": 20,
+    "trained_at": "2026-01-03T19:48:54.163401",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "router_logits",
+    "layer": 12,
+    "pooling": "mean",
+    "auc": 0.4965734649122807,
+    "accuracy": 0.6,
+    "f1_macro": 0.3277591973244147,
+    "confusion_matrix": [
+      [
+        8,
+        2,
+        1,
+        1
+      ],
+      [
+        2,
+        4,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        0
+      ]
+    ],
+    "n_train": 80,
+    "n_test": 20,
+    "trained_at": "2026-01-03T19:48:54.192653",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "residual_stream",
+    "layer": 12,
+    "pooling": "mean",
+    "auc": 0.5269423558897244,
+    "accuracy": 0.75,
+    "f1_macro": 0.39230769230769236,
+    "confusion_matrix": [
+      [
+        10,
+        2,
+        0,
+        0
+      ],
+      [
+        1,
+        5,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ]
+    ],
+    "n_train": 80,
+    "n_test": 20,
+    "trained_at": "2026-01-03T19:48:54.299468",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "router_logits",
+    "layer": 15,
+    "pooling": "mean",
+    "auc": 0.5461896929824561,
+    "accuracy": 0.65,
+    "f1_macro": 0.3380681818181818,
+    "confusion_matrix": [
+      [
+        8,
+        4,
+        0,
+        0
+      ],
+      [
+        1,
+        5,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        1,
+        0,
+        0
+      ]
+    ],
+    "n_train": 80,
+    "n_test": 20,
+    "trained_at": "2026-01-03T19:48:54.320412",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "residual_stream",
+    "layer": 15,
+    "pooling": "mean",
+    "auc": 0.5176026002506267,
+    "accuracy": 0.75,
+    "f1_macro": 0.39230769230769236,
+    "confusion_matrix": [
+      [
+        10,
+        2,
+        0,
+        0
+      ],
+      [
+        1,
+        5,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        0,
+        0
+      ]
+    ],
+    "n_train": 80,
+    "n_test": 20,
+    "trained_at": "2026-01-03T19:48:54.416841",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  }
+]

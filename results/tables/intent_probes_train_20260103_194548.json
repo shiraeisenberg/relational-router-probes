@@ -1,0 +1,226 @@
+[
+  {
+    "task": "intent",
+    "probe_target": "router_logits",
+    "layer": 4,
+    "pooling": "mean",
+    "auc": 0.5,
+    "accuracy": 0.6666666666666666,
+    "f1_macro": 0.6666666666666666,
+    "confusion_matrix": [
+      [
+        1,
+        1
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:45:48.485346",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "residual_stream",
+    "layer": 4,
+    "pooling": "mean",
+    "auc": 0.5,
+    "accuracy": 0.6666666666666666,
+    "f1_macro": 0.6666666666666666,
+    "confusion_matrix": [
+      [
+        1,
+        1
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:45:48.495477",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "router_logits",
+    "layer": 8,
+    "pooling": "mean",
+    "auc": 0.5,
+    "accuracy": 0.3333333333333333,
+    "f1_macro": 0.25,
+    "confusion_matrix": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        0
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:45:48.498816",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "residual_stream",
+    "layer": 8,
+    "pooling": "mean",
+    "auc": 0.5,
+    "accuracy": 0.6666666666666666,
+    "f1_macro": 0.6666666666666666,
+    "confusion_matrix": [
+      [
+        1,
+        1
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:45:48.505073",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "router_logits",
+    "layer": 12,
+    "pooling": "mean",
+    "auc": 0.5,
+    "accuracy": 0.3333333333333333,
+    "f1_macro": 0.25,
+    "confusion_matrix": [
+      [
+        1,
+        1
+      ],
+      [
+        1,
+        0
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:45:48.508122",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "residual_stream",
+    "layer": 12,
+    "pooling": "mean",
+    "auc": 1.0,
+    "accuracy": 0.6666666666666666,
+    "f1_macro": 0.6666666666666666,
+    "confusion_matrix": [
+      [
+        1,
+        1
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:45:48.515147",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "router_logits",
+    "layer": 15,
+    "pooling": "mean",
+    "auc": 0.0,
+    "accuracy": 0.0,
+    "f1_macro": 0.0,
+    "confusion_matrix": [
+      [
+        0,
+        2
+      ],
+      [
+        1,
+        0
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:45:48.518071",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "residual_stream",
+    "layer": 15,
+    "pooling": "mean",
+    "auc": 1.0,
+    "accuracy": 0.6666666666666666,
+    "f1_macro": 0.6666666666666666,
+    "confusion_matrix": [
+      [
+        1,
+        1
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:45:48.526752",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  }
+]

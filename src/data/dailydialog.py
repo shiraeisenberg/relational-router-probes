@@ -6,21 +6,21 @@ DailyDialog is a multi-turn dialogue dataset with:
 - Dialogue act labels (4 classes): inform, question, directive, commissive
 - Emotion labels (7 classes): neutral, anger, disgust, fear, happiness, sadness, surprise
 
-Source: http://yanran.li/dailydialog.html
+Source: http://yanran.li/dailydialog.html (also on HuggingFace)
 Paper: Li et al. (2017) "DailyDialog: A Manually Labelled Multi-Turn Dialogue Dataset"
 
 Usage:
     turns, stats = load_dailydialog(split="train")
-    print(f"Loaded {stats['n_dialogues']} dialogues, {stats['n_turns']} turns")
+    print(f"Loaded {stats.n_dialogues} dialogues, {stats.n_turns} turns")
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-import warnings
 
 # Mappings from integer labels to strings
 DIALOGUE_ACTS = {
+    0: "__dummy__",  # HF uses 0-indexed but 0 is rare/dummy
     1: "inform",
     2: "question", 
     3: "directive",
@@ -85,30 +85,132 @@ class LoadStats:
 def load_dailydialog(
     split: str = "train",
     data_dir: Optional[Path] = None,
-    verbose: bool = True
+    verbose: bool = True,
+    use_huggingface: bool = True,
 ) -> tuple[list[DialogueTurn], LoadStats]:
     """Load DailyDialog dataset.
     
     Args:
         split: One of "train", "validation", "test"
-        data_dir: Path to data directory. Defaults to data/dailydialog/
+        data_dir: Path to local data directory (only used if use_huggingface=False)
         verbose: Whether to print loading stats
+        use_huggingface: If True, load from HuggingFace Hub (recommended)
         
     Returns:
         Tuple of (list of DialogueTurn objects, LoadStats)
         
     Raises:
-        FileNotFoundError: If data files not found
+        FileNotFoundError: If data files not found (local mode only)
         ValueError: If invalid split specified
     """
-    if data_dir is None:
-        data_dir = Path("data/dailydialog")
-    else:
-        data_dir = Path(data_dir)
-    
     if split not in ["train", "validation", "test"]:
         raise ValueError(f"Invalid split: {split}. Must be train, validation, or test.")
     
+    # Use local files if data_dir is provided
+    if data_dir is not None:
+        return _load_from_local(split, data_dir, verbose)
+    
+    if use_huggingface:
+        return _load_from_huggingface(split, verbose)
+    else:
+        return _load_from_local(split, Path("data/dailydialog"), verbose)
+
+
+def _load_from_huggingface(
+    split: str,
+    verbose: bool = True,
+) -> tuple[list[DialogueTurn], LoadStats]:
+    """Load DailyDialog from HuggingFace Hub."""
+    from datasets import load_dataset
+    from collections import defaultdict
+    
+    if verbose:
+        print(f"Loading DailyDialog from HuggingFace ({split} split)...")
+    
+    # Use benjaminbeilharz/better_daily_dialog which is in Parquet format
+    # Schema: dialog_id, utterance, turn_type (1-4), emotion (0-6)
+    # Each row is one utterance, need to group by dialog_id
+    dataset = load_dataset("benjaminbeilharz/better_daily_dialog", split=split)
+    
+    # Group by dialog_id to reconstruct dialogues
+    dialogues = defaultdict(list)
+    for example in dataset:
+        dialogues[example["dialog_id"]].append({
+            "text": example["utterance"],
+            "act": example["turn_type"],
+            "emotion": example["emotion"],
+        })
+    
+    turns: list[DialogueTurn] = []
+    act_counts: dict[str, int] = {}
+    emotion_counts: dict[str, int] = {}
+    skipped_reasons: list[tuple[int, str]] = []
+    
+    for dialog_idx, dialog_id in enumerate(sorted(dialogues.keys())):
+        dialogue_id = f"daily_{split}_{dialog_idx:05d}"
+        utterances = dialogues[dialog_id]
+        
+        for turn_idx, utt in enumerate(utterances):
+            text = utt["text"]
+            act = utt["act"]
+            emotion = utt["emotion"]
+            
+            # Handle act labels (1-4 in this dataset, same as DIALOGUE_ACTS)
+            if act == 0:
+                act = 1  # Default to "inform" if dummy
+            
+            # Validate labels
+            if act not in DIALOGUE_ACTS:
+                skipped_reasons.append((dialog_idx, f"Invalid act label: {act}"))
+                continue
+            if emotion not in EMOTIONS:
+                skipped_reasons.append((dialog_idx, f"Invalid emotion label: {emotion}"))
+                continue
+            
+            act_str = DIALOGUE_ACTS[act]
+            emotion_str = EMOTIONS[emotion]
+            
+            turn = DialogueTurn(
+                turn_id=f"{dialogue_id}_t{turn_idx:02d}",
+                dialogue_id=dialogue_id,
+                speaker=turn_idx % 2,  # Alternating 0, 1, 0, 1, ...
+                text=text.strip(),
+                dialogue_act=act_str,
+                emotion=emotion_str,
+                turn_index=turn_idx,
+            )
+            turns.append(turn)
+            
+            # Update counts
+            act_counts[act_str] = act_counts.get(act_str, 0) + 1
+            emotion_counts[emotion_str] = emotion_counts.get(emotion_str, 0) + 1
+    
+    n_dialogues = len(dialogues)
+    
+    stats = LoadStats(
+        n_dialogues=n_dialogues,
+        n_turns=len(turns),
+        n_skipped=len(skipped_reasons),
+        skipped_reasons=skipped_reasons,
+        act_distribution=act_counts,
+        emotion_distribution=emotion_counts,
+    )
+    
+    if verbose:
+        stats.print_summary()
+    
+    return turns, stats
+
+
+def _load_from_local(
+    split: str,
+    data_dir: Path,
+    verbose: bool = True,
+) -> tuple[list[DialogueTurn], LoadStats]:
+    """Load DailyDialog from local files."""
+    import warnings
+    
+    data_dir = Path(data_dir)
     split_dir = data_dir / split
     text_file = split_dir / "dialogues_text.txt"
     act_file = split_dir / "dialogues_act.txt"
@@ -126,7 +228,8 @@ def load_dailydialog(
             f"  {chr(10).join(missing_files)}\n\n"
             f"Please download DailyDialog from http://yanran.li/dailydialog.html\n"
             f"and place files in {data_dir}/\n"
-            f"See data/README.md for detailed instructions."
+            f"See data/README.md for detailed instructions.\n\n"
+            f"Or use use_huggingface=True (default) to load from HuggingFace Hub."
         )
     
     # Read all files

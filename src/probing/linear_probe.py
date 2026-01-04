@@ -88,9 +88,9 @@ def train_probe(
     multiclass = n_classes > 2
     
     # Train probe
+    # Note: multi_class parameter is deprecated in sklearn 1.5+, using default (auto->multinomial)
     probe = LogisticRegression(
         max_iter=max_iter,
-        multi_class="multinomial" if multiclass else "auto",
         solver="lbfgs",
         random_state=random_state
     )

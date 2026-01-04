@@ -1,0 +1,247 @@
+[
+  {
+    "task": "intent",
+    "probe_target": "router_logits",
+    "layer": 4,
+    "pooling": "mean",
+    "auc": 0.0,
+    "accuracy": 0.6666666666666666,
+    "f1_macro": 0.4,
+    "confusion_matrix": [
+      [
+        2,
+        0
+      ],
+      [
+        1,
+        0
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:35:41.109858",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "residual_stream",
+    "layer": 4,
+    "pooling": "mean",
+    "auc": 0.0,
+    "accuracy": 0.3333333333333333,
+    "f1_macro": 0.16666666666666666,
+    "confusion_matrix": [
+      [
+        1,
+        0,
+        1
+      ],
+      [
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:35:41.139049",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "router_logits",
+    "layer": 8,
+    "pooling": "mean",
+    "auc": 0.0,
+    "accuracy": 0.6666666666666666,
+    "f1_macro": 0.4,
+    "confusion_matrix": [
+      [
+        2,
+        0
+      ],
+      [
+        1,
+        0
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:35:41.148725",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "residual_stream",
+    "layer": 8,
+    "pooling": "mean",
+    "auc": 0.0,
+    "accuracy": 0.3333333333333333,
+    "f1_macro": 0.16666666666666666,
+    "confusion_matrix": [
+      [
+        1,
+        0,
+        1
+      ],
+      [
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:35:41.173714",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "router_logits",
+    "layer": 12,
+    "pooling": "mean",
+    "auc": 0.0,
+    "accuracy": 0.6666666666666666,
+    "f1_macro": 0.4,
+    "confusion_matrix": [
+      [
+        2,
+        0
+      ],
+      [
+        1,
+        0
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:35:41.180755",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "residual_stream",
+    "layer": 12,
+    "pooling": "mean",
+    "auc": 0.0,
+    "accuracy": 0.3333333333333333,
+    "f1_macro": 0.16666666666666666,
+    "confusion_matrix": [
+      [
+        1,
+        0,
+        1
+      ],
+      [
+        1,
+        0,
+        0
+      ],
+      [
+        0,
+        0,
+        0
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:35:41.217213",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "router_logits",
+    "layer": 15,
+    "pooling": "mean",
+    "auc": 0.0,
+    "accuracy": 1.0,
+    "f1_macro": 1.0,
+    "confusion_matrix": [
+      [
+        2,
+        0
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:35:41.224960",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  },
+  {
+    "task": "intent",
+    "probe_target": "residual_stream",
+    "layer": 15,
+    "pooling": "mean",
+    "auc": 0.0,
+    "accuracy": 0.6666666666666666,
+    "f1_macro": 0.4,
+    "confusion_matrix": [
+      [
+        2,
+        0
+      ],
+      [
+        1,
+        0
+      ]
+    ],
+    "n_train": 10,
+    "n_test": 3,
+    "trained_at": "2026-01-03T19:35:41.247182",
+    "class_labels": [
+      "inform",
+      "question",
+      "directive",
+      "commissive"
+    ]
+  }
+]
