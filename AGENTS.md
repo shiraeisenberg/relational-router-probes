@@ -90,11 +90,29 @@ class DialogueTurn:
     """Single turn in a dialogue"""
     turn_id: str
     dialogue_id: str
-    speaker: str
+    speaker: int           # 0 or 1 (alternating speakers)
     text: str
     dialogue_act: str      # inform, question, directive, commissive
     emotion: str           # neutral, anger, disgust, fear, happiness, sadness, surprise
     turn_index: int
+
+@dataclass
+class LoadStats:
+    """Statistics from loading DailyDialog.
+    
+    Returned alongside list[DialogueTurn] from load_dailydialog():
+        turns, stats = load_dailydialog(split="train")
+        stats.print_summary()
+    """
+    n_dialogues: int
+    n_turns: int
+    n_skipped: int
+    skipped_reasons: list[tuple[int, str]]  # (line_number, reason)
+    act_distribution: dict[str, int]
+    emotion_distribution: dict[str, int]
+    
+    def print_summary(self) -> None:
+        """Print formatted loading summary."""
 
 @dataclass
 class RouterLogits:

@@ -4,7 +4,7 @@
 
 This project extends prior work showing router logits encode formality (AUC ≈ 1.0, 32× compression) to test whether they also encode **dyadic relational signals**—properties of speaker relationships rather than individual text.
 
-## Project Status: Phase 1 — Not Started
+## Project Status: Phase 1 — In Progress
 
 **Last Updated:** 2026-01-03
 
@@ -49,9 +49,9 @@ We probe router logits → relational labels
 ## Current Progress
 
 ### Phase 1: Infrastructure & Intent/Emotion Probes
-- [ ] Port formality probe code from prior project
+- [x] Port formality probe code from prior project
 - [ ] Set up Modal pipeline for router logit extraction
-- [ ] Load DailyDialog dataset
+- [x] Load DailyDialog dataset
 - [ ] Train intent probes (4-class)
 - [ ] Train emotion probes (7-class)
 - [ ] Compare router vs residual stream AUC
