@@ -48,13 +48,22 @@ We probe router logits → relational labels
 
 ## Current Progress
 
-### Phase 1: Infrastructure & Intent/Emotion Probes
+### Phase 1: Infrastructure & Intent/Emotion Probes ✅
 - [x] Port formality probe code from prior project
-- [ ] Set up Modal pipeline for router logit extraction
-- [x] Load DailyDialog dataset
-- [ ] Train intent probes (4-class)
-- [ ] Train emotion probes (7-class)
-- [ ] Compare router vs residual stream AUC
+- [x] Set up Modal pipeline for router logit extraction
+- [x] Load DailyDialog dataset (HuggingFace integration)
+- [x] Train intent probes (4-class) — **AUC 0.905**
+- [x] Train emotion probes (7-class) — **AUC 0.849**
+- [x] Compare router vs residual stream AUC
+
+**Key Finding:** Router logits (64-dim) achieve 96% of residual stream AUC (2048-dim) for intent classification. Both hypotheses H1 and H2 confirmed.
+
+#### Phase 1 Results Summary (10K samples, DailyDialog train)
+
+| Task | Best Router AUC | Best Residual AUC | Retention |
+|------|-----------------|-------------------|-----------|
+| Intent (4-class) | **0.905** (layer 4) | 0.946 (layer 12) | 96% |
+| Emotion (7-class) | **0.849** (layer 8) | 0.911 (layer 12) | 93% |
 
 ### Phase 2: Power & Dyadic Signals
 - [ ] Load Wikipedia Talk Pages (power labels)

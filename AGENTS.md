@@ -56,19 +56,19 @@ Key locations:
 **Goal:** Port existing tooling; establish baseline probes for non-relational signals on dialogue data.
 
 #### Tasks
-- [ ] Port formality probe code from prior project
-- [ ] Set up Modal pipeline for OLMoE router logit extraction
-- [ ] Load and preprocess DailyDialog dataset
+- [x] Port formality probe code from prior project
+- [x] Set up Modal pipeline for OLMoE router logit extraction
+- [x] Load and preprocess DailyDialog dataset
 - [ ] Verify formality replication on DailyDialog subset (sanity check)
-- [ ] Train intent category probes: router logits → {inform, question, directive, commissive}
-- [ ] Train emotion probes: router logits → 7-class emotion
-- [ ] Compare router AUC vs residual stream AUC for each signal
+- [x] Train intent category probes: router logits → {inform, question, directive, commissive}
+- [x] Train emotion probes: router logits → 7-class emotion
+- [x] Compare router AUC vs residual stream AUC for each signal
 - [ ] Document pooling sensitivity (mean vs max vs last-token)
 
 #### Exit Criteria
-- [ ] Intent probe AUC ≥ 0.75 on held-out DailyDialog
-- [ ] Emotion probe AUC documented (even if lower)
-- [ ] Compression ratio comparison table: router vs residual
+- [x] Intent probe AUC ≥ 0.75 on held-out DailyDialog *(achieved 0.905)*
+- [x] Emotion probe AUC documented (even if lower) *(achieved 0.849)*
+- [x] Compression ratio comparison table: router vs residual *(see results above)*
 - [ ] Pooling sensitivity documented
 
 #### Key Files
@@ -138,7 +138,87 @@ class ProbeResult:
     n_train: int
     n_test: int
     trained_at: datetime
+
+@dataclass
+class ExtractionCache:
+    """Pre-pooled extraction cache stored on Modal Volume.
+    
+    Architecture note: We pool DURING extraction (not after loading) to reduce
+    cache size from ~65 GB to ~235 MB for 10K samples.
+    
+    File format: .npz with compressed arrays
+    Naming: {dataset}_{split}_{pooling}_{timestamp}.npz
+    """
+    # Arrays (pre-pooled)
+    router_logits_pooled: np.ndarray   # (n_samples, n_layers, 64)
+    residual_pooled: np.ndarray        # (n_samples, n_layers, 2048)
+    token_counts: np.ndarray           # (n_samples,)
+    
+    # Metadata (JSON string in .npz)
+    model_name: str                    # "allenai/OLMoE-1B-7B-0924"
+    extraction_timestamp: str          # ISO format
+    n_samples: int
+    layers_extracted: list[int]        # e.g., [4, 8, 12, 15]
+    pooling: str                       # "mean", "max", or "last"
+    dataset: str                       # "dailydialog"
+    split: str                         # "train", "validation", "test"
+    sample_ids: list[str]              # For label matching
 ```
+
+---
+
+## Phase 1 Results (10K samples, DailyDialog train)
+
+*Extracted 2026-01-04, pooling=mean, layers=[4, 8, 12, 15]*
+
+### Intent Classification (4-class)
+
+**Class distribution:** inform (55%), question (30%), directive (9%), commissive (6%)
+
+| Target | Layer | AUC | Accuracy |
+|--------|-------|-----|----------|
+| router_logits | 4 | **0.905** | 0.792 |
+| residual_stream | 4 | 0.921 | 0.785 |
+| router_logits | 8 | 0.902 | 0.780 |
+| residual_stream | 8 | 0.940 | 0.839 |
+| router_logits | 12 | 0.872 | 0.758 |
+| residual_stream | 12 | 0.946 | 0.860 |
+| router_logits | 15 | 0.865 | 0.733 |
+| residual_stream | 15 | 0.935 | 0.844 |
+
+**Finding:** Router logits achieve 96% of residual stream AUC (0.905 vs 0.940) with 32× fewer dimensions (64 vs 2048). **H1 confirmed** (predicted ≥0.90, achieved 0.905).
+
+### Emotion Classification (7-class)
+
+**Class distribution:** neutral (75%), happiness (18%), surprise (3%), sadness (1%), anger (1%), fear (<1%), disgust (<1%)
+
+| Target | Layer | AUC | Accuracy |
+|--------|-------|-----|----------|
+| router_logits | 4 | 0.840 | 0.791 |
+| residual_stream | 4 | 0.798 | 0.789 |
+| router_logits | 8 | **0.849** | 0.790 |
+| residual_stream | 8 | 0.891 | 0.812 |
+| router_logits | 12 | 0.799 | 0.785 |
+| residual_stream | 12 | 0.911 | 0.810 |
+| router_logits | 15 | 0.779 | 0.770 |
+| residual_stream | 15 | 0.889 | 0.802 |
+
+**Finding:** Router encodes emotion but weaker than intent (0.849 vs 0.905). 93% retention vs residual (0.849 vs 0.911). **H2 confirmed** (predicted 0.70-0.85, achieved 0.849).
+
+### Key Patterns
+
+1. **Router signal peaks at layers 4-8** — early routing decisions encode intent/emotion
+2. **Residual signal peaks at layer 12** — continued refinement through later layers
+3. **Router beats residual at layer 4 for emotion** (0.840 vs 0.798) — emotion encoded early
+4. **Class imbalance affects both tasks** — neutral (75%) and inform (55%) dominate
+
+### Implementation Notes
+
+- **Modal Volume architecture:** Extractions stored on `extraction-cache` volume, probes run remotely, only small JSON results returned locally
+- **Pre-pooled format:** ~235 MB cache vs ~65 GB for per-token storage (280× reduction)
+- **Batch size:** 32 samples (up from 8), ~4.7 samples/sec on A10G
+- **Layers extracted:** [4, 8, 12, 15] only (4 layers vs 16) — sufficient for probe analysis
+- **Cost:** ~$1-2 for 10K sample extraction + probing
 
 ---
 
