@@ -119,6 +119,45 @@ SENIORITY_LEVELS = {
 HIGH_SENIORITY_TIERS = {"CEO", "President", "CFO", "CAO", "Vice Chairman", "VP"}
 
 
+# Map executive maildir folder names to seniority tiers
+# This is the KEY optimization: only scan folders of known executives
+EXECUTIVE_FOLDERS = {
+    # C-Suite
+    "lay-k": "CEO",           # Kenneth Lay
+    "skilling-j": "President", # Jeff Skilling  
+    "fastow-a": "CFO",        # Andrew Fastow
+    
+    # VPs
+    "delainey-d": "VP",       # David Delainey
+    "lavorato-j": "VP",       # John Lavorato
+    "kitchen-l": "VP",        # Louise Kitchen
+    "buy-r": "VP",            # Rick Buy
+    "haedicke-m": "VP",       # Mark Haedicke
+    "kean-s": "VP",           # Steven Kean
+    "shankman-j": "VP",       # Jeffrey Shankman
+    "shapiro-r": "VP",        # Richard Shapiro
+    "whalley-g": "VP",        # Greg Whalley
+    "horton-s": "VP",         # Stanley Horton
+    
+    # Directors
+    "beck-s": "Director",     # Sally Beck
+    "bass-e": "Director",     # Eric Bass
+    "kaminski-v": "Director", # Vince Kaminski
+    "taylor-m": "Director",   # Mark Taylor
+    "jones-t": "Director",    # Tana Jones
+    "sager-e": "Director",    # Elizabeth Sager
+    "shackleton-s": "Director", # Sara Shackleton
+    
+    # Managers
+    "campbell-l": "Manager",  # Larry Campbell
+    "arnold-j": "Manager",    # John Arnold
+    "farmer-d": "Manager",    # Daren Farmer
+    "germany-c": "Manager",   # Chris Germany
+    "nemec-g": "Manager",     # Gerald Nemec
+    "heard-m": "Manager",     # Marie Heard
+}
+
+
 @dataclass
 class EnronEmail:
     """Single email from the Enron corpus with seniority annotations."""
@@ -154,11 +193,14 @@ class LoadStats:
     def print_summary(self) -> None:
         """Print formatted loading summary."""
         print(f"Enron Emails: Loaded {self.n_emails:,} emails")
-        print(f"  Downward (senior→junior): {self.n_downward:,} ({self.n_downward/self.n_emails*100:.1f}%)")
-        print(f"  Upward (junior→senior): {self.n_upward:,} ({self.n_upward/self.n_emails*100:.1f}%)")
-        print(f"  Peer-to-peer: {self.n_peer:,} ({self.n_peer/self.n_emails*100:.1f}%)")
-        print(f"  Known senders: {self.n_known_senders:,}, Known recipients: {self.n_known_recipients:,}")
-        print(f"  Text length: mean={self.mean_text_length:.0f}, median={self.median_text_length:.0f} chars")
+        if self.n_emails > 0:
+            print(f"  Downward (senior→junior): {self.n_downward:,} ({self.n_downward/self.n_emails*100:.1f}%)")
+            print(f"  Upward (junior→senior): {self.n_upward:,} ({self.n_upward/self.n_emails*100:.1f}%)")
+            print(f"  Peer-to-peer: {self.n_peer:,} ({self.n_peer/self.n_emails*100:.1f}%)")
+            print(f"  Known senders: {self.n_known_senders:,}, Known recipients: {self.n_known_recipients:,}")
+            print(f"  Text length: mean={self.mean_text_length:.0f}, median={self.median_text_length:.0f} chars")
+        else:
+            print("  (no emails loaded)")
         if self.n_skipped > 0:
             print(f"  Skipped {self.n_skipped} emails: {self.skipped_reasons}")
 
@@ -275,6 +317,304 @@ def extract_body(raw_email: str) -> str:
     return body.strip()
 
 
+def load_enron_from_kaggle_csv(
+    csv_path: Path,
+    verbose: bool = True,
+    min_text_length: int = 50,
+    max_text_length: int = 2000,
+    filter_hierarchical: bool = True,
+    max_emails: int = 100000,
+) -> tuple[list[EnronEmail], dict[str, int]]:
+    """Load emails from Kaggle Enron CSV format.
+    
+    The Kaggle dataset (wcukierski/enron-email-dataset) has columns:
+    - file: path to original file
+    - message: raw email including headers
+    
+    Args:
+        csv_path: Path to emails.csv
+        verbose: Print progress
+        min_text_length: Minimum body length
+        max_text_length: Maximum body length
+        filter_hierarchical: Only include hierarchical emails
+        max_emails: Maximum emails to load
+        
+    Returns:
+        Tuple of (emails, skipped_reasons)
+    """
+    import csv
+    
+    all_emails = []
+    skipped_reasons: dict[str, int] = {}
+    
+    if verbose:
+        print(f"  Loading from CSV: {csv_path}")
+    
+    try:
+        with open(csv_path, 'r', encoding='utf-8', errors='replace') as f:
+            reader = csv.DictReader(f)
+            
+            for idx, row in enumerate(reader):
+                if idx >= max_emails:
+                    break
+                    
+                try:
+                    raw_text = row.get('message', '')
+                    if not raw_text:
+                        skipped_reasons["no_message"] = skipped_reasons.get("no_message", 0) + 1
+                        continue
+                    
+                    # Parse headers
+                    headers = parse_email_headers(raw_text)
+                    body = extract_body(raw_text)
+                    
+                    sender = headers.get("from", "")
+                    recipient = headers.get("to", "")
+                    
+                    # Handle multiple recipients
+                    if recipient and "," in recipient:
+                        recipient = recipient.split(",")[0].strip()
+                    
+                    if not sender or not recipient:
+                        skipped_reasons["no_parties"] = skipped_reasons.get("no_parties", 0) + 1
+                        continue
+                    
+                    if len(body) < min_text_length:
+                        skipped_reasons["too_short"] = skipped_reasons.get("too_short", 0) + 1
+                        continue
+                    
+                    if len(body) > max_text_length:
+                        body = body[:max_text_length] + "..."
+                    
+                    # Get seniority
+                    sender_seniority = get_seniority(sender)
+                    recipient_seniority = get_seniority(recipient)
+                    sender_level = SENIORITY_LEVELS.get(sender_seniority, 0)
+                    recipient_level = SENIORITY_LEVELS.get(recipient_seniority, 0)
+                    
+                    if filter_hierarchical:
+                        if sender_seniority == "Unknown" and recipient_seniority == "Unknown":
+                            skipped_reasons["unknown_hierarchy"] = skipped_reasons.get("unknown_hierarchy", 0) + 1
+                            continue
+                        if sender_level == recipient_level:
+                            skipped_reasons["peer_to_peer"] = skipped_reasons.get("peer_to_peer", 0) + 1
+                            continue
+                    
+                    email = EnronEmail(
+                        email_id=f"enron_{idx:06d}",
+                        sender=sender,
+                        recipient=recipient,
+                        sender_seniority=sender_seniority,
+                        recipient_seniority=recipient_seniority,
+                        text=body,
+                        subject=headers.get("subject", ""),
+                        is_downward=sender_level > recipient_level,
+                        is_upward=sender_level < recipient_level,
+                        seniority_gap=sender_level - recipient_level,
+                        date=headers.get("date"),
+                    )
+                    all_emails.append(email)
+                    
+                except Exception as e:
+                    skipped_reasons["parse_error"] = skipped_reasons.get("parse_error", 0) + 1
+                    continue
+                    
+    except Exception as e:
+        if verbose:
+            print(f"  CSV load error: {e}")
+        skipped_reasons["csv_error"] = 1
+    
+    return all_emails, skipped_reasons
+
+
+def load_enron_from_maildir(
+    maildir_path: Path,
+    verbose: bool = True,
+    min_text_length: int = 50,
+    max_text_length: int = 2000,
+    filter_hierarchical: bool = True,
+    max_per_executive: int = 1000,
+) -> tuple[list[EnronEmail], dict[str, int]]:
+    """Load emails from CMU Enron maildir format.
+    
+    OPTIMIZED: Only scans 'sent' folders of known executives, not all 500K files.
+    This reduces scan from ~500K files to ~5-10K files.
+    
+    Structure: maildir/{employee_name}/{folder}/{message_id}
+    Each message is raw RFC 822 email format.
+    
+    Args:
+        maildir_path: Path to maildir directory
+        verbose: Print progress
+        min_text_length: Minimum body length
+        max_text_length: Maximum body length (truncate)
+        filter_hierarchical: Only include hierarchical emails
+        max_per_executive: Cap emails per executive to avoid imbalance
+        
+    Returns:
+        Tuple of (emails, skipped_reasons)
+    """
+    from email import policy
+    from email.parser import BytesParser
+    
+    all_emails = []
+    skipped_reasons: dict[str, int] = {}
+    
+    maildir = Path(maildir_path)
+    if not maildir.exists():
+        if verbose:
+            print(f"  Maildir not found: {maildir}")
+        return [], {"maildir_not_found": 1}
+    
+    # Only scan known executive folders (OPTIMIZATION!)
+    found_executives = []
+    for folder_name in EXECUTIVE_FOLDERS.keys():
+        if (maildir / folder_name).exists():
+            found_executives.append(folder_name)
+    
+    if verbose:
+        print(f"  Found {len(found_executives)} executive mailboxes (of {len(EXECUTIVE_FOLDERS)} expected)")
+    
+    if not found_executives:
+        if verbose:
+            print(f"  No executive folders found in {maildir}")
+            print(f"  Expected folders like: {list(EXECUTIVE_FOLDERS.keys())[:5]}")
+        return [], {"no_executives": 1}
+    
+    parser = BytesParser(policy=policy.default)
+    email_idx = 0
+    
+    # Sent folder names to check (emails authored by this person)
+    SENT_FOLDERS = ["sent", "sent_items", "_sent_mail", "sent_mail"]
+    
+    for folder_name in found_executives:
+        exec_seniority = EXECUTIVE_FOLDERS[folder_name]
+        exec_path = maildir / folder_name
+        exec_count = 0
+        
+        # Only check 'sent' folders (emails they authored, so we know sender seniority)
+        for sent_folder in SENT_FOLDERS:
+            sent_path = exec_path / sent_folder
+            if not sent_path.exists():
+                continue
+            
+            if verbose:
+                print(f"    Scanning {folder_name}/{sent_folder}...")
+            
+            # Iterate through email files in this folder
+            try:
+                for email_file in sent_path.iterdir():
+                    if exec_count >= max_per_executive:
+                        break
+                    
+                    if not email_file.is_file():
+                        continue
+                    
+                    try:
+                        # Parse email
+                        with open(email_file, 'rb') as f:
+                            msg = parser.parse(f)
+                        
+                        # Extract headers
+                        sender = msg.get('From', '')
+                        recipient = msg.get('To', '')
+                        subject = msg.get('Subject', '')
+                        date = msg.get('Date', '')
+                        
+                        # Handle multiple recipients - take first
+                        if recipient and ',' in recipient:
+                            recipient = recipient.split(',')[0].strip()
+                        
+                        # Skip if no recipient
+                        if not recipient:
+                            skipped_reasons["no_recipient"] = skipped_reasons.get("no_recipient", 0) + 1
+                            continue
+                        
+                        # Get body
+                        body = ""
+                        if msg.is_multipart():
+                            for part in msg.walk():
+                                if part.get_content_type() == 'text/plain':
+                                    try:
+                                        body = part.get_content()
+                                        break
+                                    except:
+                                        pass
+                        else:
+                            try:
+                                body = msg.get_content()
+                            except:
+                                payload = msg.get_payload(decode=True)
+                                body = payload.decode('utf-8', errors='replace') if payload else ""
+                        
+                        if not isinstance(body, str):
+                            body = str(body)
+                        
+                        # Clean body
+                        body = body.strip()
+                        
+                        # Skip if body too short
+                        if len(body) < min_text_length:
+                            skipped_reasons["too_short"] = skipped_reasons.get("too_short", 0) + 1
+                            continue
+                        
+                        # Truncate if too long
+                        if len(body) > max_text_length:
+                            body = body[:max_text_length] + "..."
+                        
+                        # We KNOW sender seniority from the folder
+                        sender_seniority = exec_seniority
+                        sender_level = SENIORITY_LEVELS.get(sender_seniority, 0)
+                        
+                        # Get recipient seniority
+                        recipient_seniority = get_seniority(recipient)
+                        recipient_level = SENIORITY_LEVELS.get(recipient_seniority, 0)
+                        
+                        # Skip if filtering for hierarchical
+                        if filter_hierarchical:
+                            # Skip if both at same level
+                            if sender_level == recipient_level:
+                                skipped_reasons["peer_to_peer"] = skipped_reasons.get("peer_to_peer", 0) + 1
+                                continue
+                        
+                        is_downward = sender_level > recipient_level
+                        is_upward = sender_level < recipient_level
+                        seniority_gap = sender_level - recipient_level
+                        
+                        email = EnronEmail(
+                            email_id=f"enron_{email_idx:06d}",
+                            sender=sender or f"{folder_name}@enron.com",
+                            recipient=recipient,
+                            sender_seniority=sender_seniority,
+                            recipient_seniority=recipient_seniority,
+                            text=body,
+                            subject=subject,
+                            is_downward=is_downward,
+                            is_upward=is_upward,
+                            seniority_gap=seniority_gap,
+                            date=date,
+                        )
+                        all_emails.append(email)
+                        email_idx += 1
+                        exec_count += 1
+                        
+                    except Exception as e:
+                        skipped_reasons["parse_error"] = skipped_reasons.get("parse_error", 0) + 1
+                        continue
+                        
+            except Exception as e:
+                skipped_reasons["folder_error"] = skipped_reasons.get("folder_error", 0) + 1
+                continue
+            
+            if exec_count >= max_per_executive:
+                break
+        
+        if verbose and exec_count > 0:
+            print(f"      → {exec_count} emails from {folder_name} ({exec_seniority})")
+    
+    return all_emails, skipped_reasons
+
+
 def load_enron(
     n_samples: int = 5000,
     balanced: bool = True,
@@ -288,6 +628,12 @@ def load_enron(
 ) -> tuple[list[EnronEmail], LoadStats]:
     """Load Enron email dataset with seniority annotations.
     
+    Data sources (checked in order):
+    1. Local maildir at data_path (if provided)
+    2. Local maildir at data/enron/maildir/ (CMU corpus)
+    3. Local CSV at data/enron/emails.csv (Kaggle format)
+    4. HuggingFace (unlikely to work for raw emails)
+    
     Args:
         n_samples: Target number of emails to return
         balanced: If True, balance downward vs upward communications
@@ -297,7 +643,7 @@ def load_enron(
         max_text_length: Maximum email body length (truncate longer)
         filter_hierarchical: If True, only include emails with clear hierarchy
         verbose: Whether to print progress
-        data_path: Optional path to local Enron data (uses HuggingFace if None)
+        data_path: Optional path to local Enron data
         
     Returns:
         Tuple of (list of EnronEmail objects, LoadStats)
@@ -314,112 +660,150 @@ def load_enron(
     if verbose:
         print(f"Loading Enron email corpus...")
     
-    # Try loading from HuggingFace datasets
-    try:
-        from datasets import load_dataset
-        
-        # Use the Kaggle Enron dataset on HuggingFace
-        # Note: This may need adjustment based on available dataset format
-        dataset = load_dataset("SetFit/enron_spam", split="train")
-        use_hf = True
-        
-        if verbose:
-            print(f"  Loaded {len(dataset)} emails from HuggingFace")
-    except Exception as e:
-        if verbose:
-            print(f"  HuggingFace load failed ({e}), trying local data...")
-        use_hf = False
-        dataset = None
-    
-    # If HuggingFace failed and we have local data
-    if not use_hf and data_path:
-        # Load from local CSV or directory
-        raise NotImplementedError("Local Enron loading not yet implemented")
-    
-    # Parse emails and extract metadata
     all_emails = []
     skipped_reasons: dict[str, int] = {}
     
-    if use_hf and dataset:
-        for idx, example in enumerate(dataset):
-            try:
-                # Extract text - format depends on dataset
-                if "text" in example:
-                    raw_text = example["text"]
-                elif "email" in example:
-                    raw_text = example["email"]
-                else:
-                    skipped_reasons["no_text"] = skipped_reasons.get("no_text", 0) + 1
-                    continue
-                
-                # Parse headers if present
-                headers = parse_email_headers(raw_text)
-                body = extract_body(raw_text)
-                
-                # Get sender/recipient
-                sender = headers.get("from", headers.get("sender", ""))
-                recipient = headers.get("to", "")
-                
-                # Handle multiple recipients - take first
-                if "," in recipient:
-                    recipient = recipient.split(",")[0].strip()
-                
-                # Skip if no sender/recipient
-                if not sender or not recipient:
-                    skipped_reasons["no_parties"] = skipped_reasons.get("no_parties", 0) + 1
-                    continue
-                
-                # Skip if body too short
-                if len(body) < min_text_length:
-                    skipped_reasons["too_short"] = skipped_reasons.get("too_short", 0) + 1
-                    continue
-                
-                # Truncate if too long
-                if len(body) > max_text_length:
-                    body = body[:max_text_length] + "..."
-                
-                # Get seniority
-                sender_seniority = get_seniority(sender)
-                recipient_seniority = get_seniority(recipient)
-                
-                sender_level = SENIORITY_LEVELS.get(sender_seniority, 0)
-                recipient_level = SENIORITY_LEVELS.get(recipient_seniority, 0)
-                
-                # Skip if filtering for hierarchical and both are unknown
-                if filter_hierarchical:
-                    if sender_seniority == "Unknown" and recipient_seniority == "Unknown":
-                        skipped_reasons["unknown_hierarchy"] = skipped_reasons.get("unknown_hierarchy", 0) + 1
-                        continue
-                    # Also skip if same level (peer-to-peer)
-                    if sender_level == recipient_level:
-                        skipped_reasons["peer_to_peer"] = skipped_reasons.get("peer_to_peer", 0) + 1
-                        continue
-                
-                is_downward = sender_level > recipient_level
-                is_upward = sender_level < recipient_level
-                seniority_gap = sender_level - recipient_level
-                
-                email = EnronEmail(
-                    email_id=f"enron_{idx:06d}",
-                    sender=sender,
-                    recipient=recipient,
-                    sender_seniority=sender_seniority,
-                    recipient_seniority=recipient_seniority,
-                    text=body,
-                    subject=headers.get("subject", ""),
-                    is_downward=is_downward,
-                    is_upward=is_upward,
-                    seniority_gap=seniority_gap,
-                    date=headers.get("date"),
+    # Check for local data sources
+    local_paths_to_try = []
+    if data_path:
+        local_paths_to_try.append(Path(data_path))
+    local_paths_to_try.extend([
+        Path("data/enron/maildir"),
+        Path("data/enron"),
+    ])
+    
+    # Try maildir format first (CMU corpus)
+    for local_path in local_paths_to_try:
+        # Check if this directory contains executive folders directly
+        # (could be maildir/ or a direct path from Modal volume)
+        executive_check = ["lay-k", "skilling-j", "delainey-d"]
+        if any((local_path / f).exists() for f in executive_check):
+            maildir_path = local_path
+        elif local_path.name == "maildir":
+            maildir_path = local_path
+        else:
+            maildir_path = local_path / "maildir"
+        
+        if maildir_path.exists() and maildir_path.is_dir():
+            if verbose:
+                print(f"  Found maildir at {maildir_path}")
+            all_emails, skipped_reasons = load_enron_from_maildir(
+                maildir_path,
+                verbose=verbose,
+                min_text_length=min_text_length,
+                max_text_length=max_text_length,
+                filter_hierarchical=filter_hierarchical,
+            )
+            if all_emails:
+                break
+    
+    # Try Kaggle CSV format
+    if not all_emails:
+        for local_path in local_paths_to_try:
+            csv_path = local_path / "emails.csv" if local_path.is_dir() else local_path
+            if csv_path.exists() and csv_path.suffix == ".csv":
+                if verbose:
+                    print(f"  Found CSV at {csv_path}")
+                all_emails, skipped_reasons = load_enron_from_kaggle_csv(
+                    csv_path,
+                    verbose=verbose,
+                    min_text_length=min_text_length,
+                    max_text_length=max_text_length,
+                    filter_hierarchical=filter_hierarchical,
                 )
-                all_emails.append(email)
-                
-            except Exception as e:
-                skipped_reasons["parse_error"] = skipped_reasons.get("parse_error", 0) + 1
-                continue
+                if all_emails:
+                    break
+    
+    # Fallback to HuggingFace (likely won't work for raw emails)
+    if not all_emails:
+        try:
+            from datasets import load_dataset
+            
+            # Try a few potential dataset names
+            for dataset_name in ["wcukierski/enron-email-dataset", "SetFit/enron_spam"]:
+                try:
+                    dataset = load_dataset(dataset_name, split="train")
+                    if verbose:
+                        print(f"  Loaded {len(dataset)} emails from HuggingFace ({dataset_name})")
+                    
+                    # Parse based on dataset format
+                    for idx, example in enumerate(dataset):
+                        try:
+                            raw_text = example.get("text", example.get("message", example.get("email", "")))
+                            if not raw_text:
+                                continue
+                            
+                            headers = parse_email_headers(raw_text)
+                            body = extract_body(raw_text)
+                            
+                            sender = headers.get("from", "")
+                            recipient = headers.get("to", "")
+                            
+                            if not sender or not recipient:
+                                continue
+                            
+                            if "," in recipient:
+                                recipient = recipient.split(",")[0].strip()
+                            
+                            if len(body) < min_text_length:
+                                continue
+                            
+                            if len(body) > max_text_length:
+                                body = body[:max_text_length] + "..."
+                            
+                            sender_seniority = get_seniority(sender)
+                            recipient_seniority = get_seniority(recipient)
+                            sender_level = SENIORITY_LEVELS.get(sender_seniority, 0)
+                            recipient_level = SENIORITY_LEVELS.get(recipient_seniority, 0)
+                            
+                            if filter_hierarchical:
+                                if sender_seniority == "Unknown" and recipient_seniority == "Unknown":
+                                    continue
+                                if sender_level == recipient_level:
+                                    continue
+                            
+                            email = EnronEmail(
+                                email_id=f"enron_{idx:06d}",
+                                sender=sender,
+                                recipient=recipient,
+                                sender_seniority=sender_seniority,
+                                recipient_seniority=recipient_seniority,
+                                text=body,
+                                subject=headers.get("subject", ""),
+                                is_downward=sender_level > recipient_level,
+                                is_upward=sender_level < recipient_level,
+                                seniority_gap=sender_level - recipient_level,
+                                date=headers.get("date"),
+                            )
+                            all_emails.append(email)
+                        except:
+                            continue
+                    
+                    if all_emails:
+                        break
+                except Exception as e:
+                    if verbose:
+                        print(f"  HuggingFace {dataset_name} failed: {e}")
+                    continue
+        except Exception as e:
+            if verbose:
+                print(f"  HuggingFace load failed: {e}")
     
     if verbose:
         print(f"  Parsed {len(all_emails)} valid emails")
+    
+    # If no emails found, provide helpful message
+    if not all_emails:
+        if verbose:
+            print("\n  ⚠️  No emails loaded. To download the Enron corpus:")
+            print("  Option A (Kaggle - requires kaggle CLI):")
+            print("    kaggle datasets download -d wcukierski/enron-email-dataset")
+            print("    unzip enron-email-dataset.zip -d data/enron/")
+            print("")
+            print("  Option B (CMU direct):")
+            print("    curl -O https://www.cs.cmu.edu/~enron/enron_mail_20150507.tar.gz")
+            print("    tar -xzf enron_mail_20150507.tar.gz -C data/enron/")
+            print("")
     
     # Split into train/validation (80/20 by email_id hash)
     def is_train(email_id: str) -> bool:

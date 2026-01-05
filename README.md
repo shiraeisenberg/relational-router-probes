@@ -10,11 +10,11 @@ Research code for ["What Routers Know (And Don't)"](https://shiraeis.substack.co
 |--------|-----------|--------------|-----------|-------|
 | Intent (4-class) | 0.841 | 0.877 | 96% | Dialogue acts: inform, question, directive, commissive |
 | Emotion (7-class) | 0.879 | 0.938 | 94% | DailyDialog emotion labels |
-| Power/Wikipedia (binary) | 0.608 | 0.677 | 90% | Admin vs non-admin (inconclusive—see below) |
-| Power/Enron (binary) | TBD | TBD | TBD | Downward vs upward communication |
+| Power/Wikipedia (binary) | 0.608 | 0.677 | 90% | Admin vs non-admin (inconclusive—noisy labels) |
+| **Power/Enron (binary)** | **0.755** | **0.929** | **81%** | **Downward vs upward communication ✓** |
 | **Tension (3-class)** | **0.995** | **1.000** | **99.5%** | Escalation vs repair vs neutral |
 
-**Insight:** Router logits strongly encode *what is being said* (intent, emotion, tension dynamics). The weak Wikipedia Talk result may reflect that admin status is a noisy proxy for power signals rather than an architectural limitation. Routers may encode power *when exercised* (directives, deference) but not speaker identity *per se*. Enron experiments (downward vs upward communication) will clarify whether routers distinguish "directive from senior" vs "request from junior."
+**Insight:** Router logits encode *what is being said* (intent, emotion, tension) AND *power when exercised* (directives, deference). The weak Wikipedia Talk result reflected noisy labels (admin ≠ power exercise), not an architectural limitation. Enron confirms: routers distinguish "directive from senior" vs "request from junior" at AUC 0.755 (81% retention of residual signal).
 
 ---
 

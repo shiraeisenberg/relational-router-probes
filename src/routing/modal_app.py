@@ -33,10 +33,12 @@ app = modal.App("olmoe-router-extraction")
 # Volumes
 model_volume = modal.Volume.from_name("olmoe-weights-cache", create_if_missing=True)
 extraction_volume = modal.Volume.from_name("extraction-cache", create_if_missing=True)
+enron_volume = modal.Volume.from_name("enron-corpus", create_if_missing=True)
 
 # Paths
 MODEL_CACHE_DIR = "/model-cache"
 EXTRACTION_DIR = "/extractions"
+ENRON_DIR = "/enron-data"
 
 # Container image with dependencies
 image = (
@@ -60,6 +62,7 @@ image = (
     volumes={
         MODEL_CACHE_DIR: model_volume,
         EXTRACTION_DIR: extraction_volume,
+        ENRON_DIR: enron_volume,
     },
 )
 class OLMoEExtractor:
@@ -949,8 +952,41 @@ def main(
         elif dataset == "enron":
             # Load Enron emails with seniority annotations
             # Tests power encoding via communication direction (downward vs upward)
+            import tarfile
+            from pathlib import Path
+            import os
             import sys
             sys.path.insert(0, ".")
+            
+            # Check for Enron data on Modal volume first
+            # The tarball extracts folder contents directly, so:
+            # /enron-data/executives_maildir.tar.gz extracts to /enron-data/lay-k, /enron-data/skilling-j, etc.
+            # We treat ENRON_DIR as the "maildir" path
+            enron_maildir = Path(ENRON_DIR)
+            enron_tar = Path(f"{ENRON_DIR}/executives_maildir.tar.gz")
+            
+            # Check if any executive folders exist (indicating extraction was done)
+            executive_folders = ["lay-k", "skilling-j", "delainey-d", "kean-s"]
+            folders_exist = any((enron_maildir / f).exists() for f in executive_folders)
+            
+            # Extract tarball if needed (one-time on first run)
+            if not folders_exist and enron_tar.exists():
+                print(f"Extracting Enron corpus from Modal volume...")
+                os.makedirs(ENRON_DIR, exist_ok=True)
+                with tarfile.open(enron_tar, "r:gz") as tar:
+                    tar.extractall(ENRON_DIR)
+                enron_volume.commit()
+                folders_exist = any((enron_maildir / f).exists() for f in executive_folders)
+                print(f"  Extracted executive folders to {enron_maildir}")
+            
+            # Determine data path
+            if folders_exist:
+                data_path = enron_maildir
+                print(f"Loading Enron from Modal volume: {data_path}")
+            else:
+                data_path = None  # Will try local paths
+                print(f"Enron not found on Modal volume, trying local...")
+            
             from src.data.enron import load_enron
             
             print(f"Loading Enron emails...")
@@ -961,6 +997,7 @@ def main(
                 split=split,
                 filter_hierarchical=True,  # Only emails with clear hierarchy
                 verbose=True,
+                data_path=data_path,
             )
             
             texts = [e.text for e in emails]
