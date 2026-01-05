@@ -945,6 +945,33 @@ def main(
             print(f"Prepared {len(texts)} samples")
             label_counts = {k: labels.count(v) for k, v in label_map.items()}
             print(f"  Labels: {label_counts}")
+        
+        elif dataset == "enron":
+            # Load Enron emails with seniority annotations
+            # Tests power encoding via communication direction (downward vs upward)
+            import sys
+            sys.path.insert(0, ".")
+            from src.data.enron import load_enron
+            
+            print(f"Loading Enron emails...")
+            n_to_load = max_samples if max_samples else 5000
+            emails, stats = load_enron(
+                n_samples=n_to_load,
+                balanced=True,
+                split=split,
+                filter_hierarchical=True,  # Only emails with clear hierarchy
+                verbose=True,
+            )
+            
+            texts = [e.text for e in emails]
+            sample_ids = [e.email_id for e in emails]
+            
+            # Label by communication direction: 0=upward (junior→senior), 1=downward (senior→junior)
+            # This tests whether routers encode power when it's being exercised
+            labels = [1 if e.is_downward else 0 for e in emails]
+            
+            print(f"Prepared {len(texts)} samples from Enron")
+            print(f"  Labels: {sum(labels)} downward, {len(labels) - sum(labels)} upward")
             
         else:  # Default: dailydialog
             from datasets import load_dataset
@@ -1163,7 +1190,13 @@ def main(
     print("  modal run src/routing/modal_app.py --dry-run")
     print("  modal run src/routing/modal_app.py --extract --dataset dailydialog --split train")
     print("  modal run src/routing/modal_app.py --extract --dataset wikipedia_talk --split train --max-samples 5000")
+    print("  modal run src/routing/modal_app.py --extract --dataset enron --split train --max-samples 5000")
     print("  modal run src/routing/modal_app.py --show-caches")
     print("  modal run src/routing/modal_app.py --probe --cache-name <name>")
     print("  modal run src/routing/modal_app.py --power-probe --train-cache <train.npz> --eval-cache <eval.npz>")
     print("  modal run src/routing/modal_app.py --tension-probe --cache-name <tension.npz>")
+    print("")
+    print("Enron power probes (tests communication direction: downward vs upward):")
+    print("  modal run src/routing/modal_app.py --extract --dataset enron --split train --max-samples 5000")
+    print("  modal run src/routing/modal_app.py --extract --dataset enron --split validation --max-samples 1000")
+    print("  modal run src/routing/modal_app.py --power-probe --train-cache <enron_train.npz> --eval-cache <enron_val.npz>")

@@ -10,10 +10,11 @@ Research code for ["What Routers Know (And Don't)"](https://shiraeis.substack.co
 |--------|-----------|--------------|-----------|-------|
 | Intent (4-class) | 0.841 | 0.877 | 96% | Dialogue acts: inform, question, directive, commissive |
 | Emotion (7-class) | 0.879 | 0.938 | 94% | DailyDialog emotion labels |
-| Power (binary) | 0.608 | 0.677 | 90% | Admin vs non-admin (weak signal) |
+| Power/Wikipedia (binary) | 0.608 | 0.677 | 90% | Admin vs non-admin (inconclusive—see below) |
+| Power/Enron (binary) | TBD | TBD | TBD | Downward vs upward communication |
 | **Tension (3-class)** | **0.995** | **1.000** | **99.5%** | Escalation vs repair vs neutral |
 
-**Insight:** Router logits encode *what is being said* (intent, emotion, tension dynamics) but not *who is speaking* (social status). This suggests MoE routing decisions optimize for processing content type rather than social/speaker context.
+**Insight:** Router logits strongly encode *what is being said* (intent, emotion, tension dynamics). The weak Wikipedia Talk result may reflect that admin status is a noisy proxy for power signals rather than an architectural limitation. Routers may encode power *when exercised* (directives, deference) but not speaker identity *per se*. Enron experiments (downward vs upward communication) will clarify whether routers distinguish "directive from senior" vs "request from junior."
 
 ---
 
@@ -29,7 +30,8 @@ Research code for ["What Routers Know (And Don't)"](https://shiraeis.substack.co
 ├── src/
 │   ├── data/                 # Dataset loaders
 │   │   ├── dailydialog.py    # DailyDialog (intent, emotion)
-│   │   ├── wikipedia_talk.py # Wikipedia Talk Pages (power)
+│   │   ├── wikipedia_talk.py # Wikipedia Talk Pages (power/speaker identity)
+│   │   ├── enron.py          # Enron emails (power/communication direction)
 │   │   ├── synthetic_tension.py  # Claude-generated tension pairs
 │   │   ├── sotopia.py        # SOTOPIA (not implemented)
 │   │   └── meld.py           # MELD (not implemented)
@@ -160,6 +162,25 @@ modal run src/routing/modal_app.py --tension-probe --cache-name <tension_cache_n
 
 **Expected output:** AUC ~0.99 (router captures tension dynamics very well).
 
+### Enron Power Probes (Communication Direction)
+
+**What it does:** Tests whether routers encode power *when exercised* — distinguishing emails from senior→junior (directives, delegation) vs junior→senior (requests, deference). This is a stronger test than Wikipedia Talk, which only tests speaker identity.
+
+```bash
+# 1. Extract training data (~$0.80)
+modal run src/routing/modal_app.py --extract --dataset enron --split train --max-samples 5000
+
+# 2. Extract validation data (~$0.20)
+modal run src/routing/modal_app.py --extract --dataset enron --split validation --max-samples 1000
+
+# 3. Run power probes (communication direction: downward vs upward)
+modal run src/routing/modal_app.py --power-probe \
+  --train-cache <enron_train_cache_name> \
+  --eval-cache <enron_validation_cache_name>
+```
+
+**Expected output:** If H3b holds (AUC ≥ 0.70), routers encode power through linguistic markers. If similar to Wikipedia (~0.60), suggests routers truly don't encode relational power dynamics.
+
 ### Figure Generation
 
 Pre-generated figures are in `results/figures/`. To regenerate:
@@ -176,9 +197,10 @@ python scripts/generate_figures.py --results-dir results/tables --output-dir res
 |------|---------|-----|------|------|
 | DailyDialog extraction | 10,000 | A10G | ~35 min | ~$1.50 |
 | Wikipedia Talk extraction | 5,000 | A10G | ~18 min | ~$0.80 |
+| Enron extraction | 5,000 | A10G | ~18 min | ~$0.80 |
 | Tension pair extraction | 500 | A10G | ~3 min | ~$0.15 |
 | Probe training | any | CPU | ~1 min | ~$0.02 |
-| **Total reproduction** | — | — | ~1 hr | **<$5** |
+| **Total reproduction** | — | — | ~1.5 hr | **<$6** |
 
 All extraction runs on Modal serverless. Probing is CPU-only and cheap.
 

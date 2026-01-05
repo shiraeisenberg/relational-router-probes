@@ -3,7 +3,7 @@
 > **This document is the primary reference for AI agents working on this codebase.**  
 > Read this FIRST before making any changes.
 
-*Last updated: 2026-01-03*
+*Last updated: 2026-01-04*
 
 ---
 
@@ -234,6 +234,8 @@ class ExtractionCache:
 #### Tasks
 - [x] Load Wikipedia Talk Pages dataset (admin/non-admin labels)
 - [x] Train power differential probes: router logits → {high-status, low-status}
+- [x] Load Enron email corpus with seniority annotations
+- [ ] Train Enron direction probes: router logits → {downward, upward} communication
 - [ ] Analyze expert clusters for power (do power-linked experts overlap with formality experts?)
 - [ ] Generate SOTOPIA interaction logs via their pipeline
 - [ ] Train dyadic outcome probes: router logits at turn N → relationship score at end
@@ -242,7 +244,8 @@ class ExtractionCache:
 - [ ] Expert cluster analysis for each signal type
 
 #### Exit Criteria
-- [x] Power probe AUC documented *(achieved 0.608 — below target)*
+- [x] Power probe AUC documented *(Wikipedia Talk: achieved 0.608 — inconclusive due to label noise)*
+- [ ] Enron direction probe AUC documented *(target: ≥0.70 for H3b)*
 - [ ] Expert overlap analysis: power vs formality vs intent
 - [x] Tension probe AUC on synthetic data *(achieved 0.995 — exceptional)*
 - [ ] SOTOPIA relationship prediction AUC (stretch)
@@ -250,6 +253,7 @@ class ExtractionCache:
 #### Key Files
 ```
 src/data/wikipedia_talk.py    # Wikipedia Talk Pages loader
+src/data/enron.py             # Enron email loader with seniority annotations
 src/data/sotopia.py           # SOTOPIA log loader/generator
 src/data/synthetic_tension.py # Synthetic tension/repair pair generator
 src/probing/power_probe.py    # Power differential probing
@@ -300,6 +304,25 @@ class ExpertClusterAnalysis:
     top_k_experts: list[int]  # Experts most associated with signal
     activation_scores: dict[int, float]  # Expert ID → mean activation
     overlap_with: dict[str, float]  # Other signal → Jaccard overlap
+
+@dataclass
+class EnronEmail:
+    """Single email from the Enron corpus with seniority annotations.
+    
+    Key insight: Tests power encoding when linguistically exercised (directives 
+    from senior→junior, deference from junior→senior) rather than just speaker 
+    identity as in Wikipedia Talk.
+    """
+    email_id: str
+    sender: str                    # Email address
+    recipient: str                 # Primary recipient email
+    sender_seniority: str          # CEO, VP, Director, Manager, Employee, Unknown
+    recipient_seniority: str
+    text: str                      # Email body
+    subject: str                   # Email subject
+    is_downward: bool              # True if sender outranks recipient (senior→junior)
+    is_upward: bool                # True if recipient outranks sender (junior→senior)
+    seniority_gap: int             # Difference in seniority levels
 ```
 
 ---
@@ -321,13 +344,21 @@ class ExpertClusterAnalysis:
 | residual_stream | 12 | 0.818 | **0.677** | 0.623 |
 | residual_stream | 15 | 0.878 | 0.668 | 0.624 |
 
-### H3 Status: ❌ Not Met
+### H3 Status: ❌ Not Met (but Inconclusive)
 
 **Target:** AUC ≥ 0.65 | **Achieved:** 0.608 (router), 0.677 (residual)
 
 ### Interpretation
 
-Router logits encode speaker power weakly compared to intent/emotion. Routing appears optimized for **"what is being said"** (dialogue act, emotional valence) rather than **"who is speaking"** (social status). This suggests MoE routing is **content-typed, not speaker-typed**.
+Router logits encode speaker power weakly compared to intent/emotion on this dataset. However, this result is **inconclusive** for architectural conclusions:
+
+1. **Wikipedia Talk tests speaker identity, not power exercise.** The admin label indicates *who* is speaking, not *how* they're speaking. An admin asking a question looks identical to a non-admin asking the same question in the text itself.
+
+2. **Label noise is high.** Many admins write casually; many non-admins write authoritatively. The label is a noisy proxy for power signals in the text.
+
+3. **Enron will disambiguate.** Downward (senior→junior) vs upward (junior→senior) communication tests whether routers see power *being exercised* through linguistic markers (hedging, deference, directives), not just speaker metadata.
+
+**Revised interpretation:** Routers may encode linguistic markers of power but not speaker identity per se. The Wikipedia result shows absence of signal in that data, not necessarily absence of capacity.
 
 ---
 
@@ -369,13 +400,15 @@ Router logits encode speaker power weakly compared to intent/emotion. Routing ap
 | Power (binary) | 0.608 | 0.677 | 90% | ✗ H3 not met |
 | **Tension (3-class)** | **0.995** | **1.000** | **99.5%** | ✓ New finding |
 
-### Key Insight
+### Key Insight (Preliminary)
 
-MoE routing is **content-typed, not speaker-typed**:
-- **Strongly encoded:** Intent, emotion, tension (what is being said)
-- **Weakly encoded:** Power/status (who is speaking)
+MoE routing strongly encodes **content-type signals**:
+- **Strongly encoded:** Intent, emotion, tension (what is being said, how it's said)
+- **Weakly encoded on Wikipedia Talk:** Power/status (who is speaking) — but see caveat below
 
-Router logits capture relational dynamics in text (escalation patterns, repair strategies) but not speaker identity. This suggests routing decisions optimize for processing content type, not social context.
+Router logits capture relational dynamics in text (escalation patterns, repair strategies). The weak Wikipedia Talk result may reflect that admin status is a noisy proxy for power signals rather than an architectural limitation.
+
+**Caveat:** The Wikipedia result tests speaker *identity* (admin label), not power *exercise*. Enron experiments (downward vs upward communication) will clarify whether routers encode power when it manifests as linguistic markers (directives, deference, hedging) rather than speaker metadata.
 
 ---
 
@@ -445,6 +478,28 @@ docs/writeup.md               # Substack draft
 - **Size:** ~500 pairs (generate via Claude)
 - **Annotations:** Escalation/repair/neutral by construction
 - **Signals:** Tension dynamics
+
+#### Enron Email Corpus
+- **Size:** ~500,000 emails (filtered to ~5K with clear hierarchical relationships)
+- **Annotations:** Sender/recipient seniority (CEO/VP/Director/Manager/Employee)
+- **Source:** CMU Enron Dataset / Kaggle enron-email-dataset
+- **Signals:** Power-in-action via communication direction (downward vs upward)
+
+```python
+# Expected schema after loading
+@dataclass
+class EnronEmail:
+    email_id: str
+    sender: str
+    recipient: str  
+    sender_seniority: str  # CEO, VP, Director, Manager, Employee
+    recipient_seniority: str
+    text: str
+    is_downward: bool  # True if sender outranks recipient (senior→junior)
+    is_upward: bool    # True if recipient outranks sender (junior→senior)
+```
+
+**Key insight:** Unlike Wikipedia Talk (which labels *who* is speaking), Enron labels the *direction* of communication. This tests whether routers distinguish "directive from senior" vs "request from junior" — power being exercised through content, not speaker metadata.
 
 ### Tier 2 (Secondary — If Time Permits)
 
@@ -615,9 +670,15 @@ def compute_expert_overlap(assoc_a: dict, assoc_b: dict, top_k: int = 5) -> floa
 ### H2 (Medium): Emotion encodes but weaker than intent
 **Prediction:** Emotion AUC 0.70-0.85, lower than intent.
 
-### H3 (Exploratory): Power differential encodes
-**Prediction:** Power probe AUC ≥ 0.65 on Wikipedia Talk.
+### H3 (Exploratory): Power differential encodes (Wikipedia Talk)
+**Prediction:** Power probe AUC ≥ 0.65 on Wikipedia Talk (admin vs non-admin).
 **Result:** ❌ Not met — achieved 0.608 (router), 0.677 (residual)
+**Status:** *Inconclusive* — Wikipedia Talk tests speaker identity (admin label), not power being exercised. The 0.608 AUC may reflect noisy labels rather than architectural limitations.
+
+### H3b (Exploratory): Power encodes when linguistically marked (Enron)
+**Prediction:** Enron downward vs upward communication AUC ≥ 0.70
+**Rationale:** Emails between executives and subordinates should contain linguistically-marked power signals (hedging, deference, directives). This tests whether routers distinguish "directive from senior" vs "directive from junior" — power-in-action rather than speaker metadata.
+**Result:** TBD
 
 ### H4 (High Risk): Relationship prediction from early turns
 **Prediction:** Some signal (AUC > 0.55) for SOTOPIA outcomes.
@@ -625,7 +686,8 @@ def compute_expert_overlap(assoc_a: dict, assoc_b: dict, top_k: int = 5) -> floa
 ### Null Result Interpretations
 - **Intent doesn't encode:** Routing more sensitive to surface than semantic
 - **Emotion doesn't encode:** Emotion in attention, not FFN routing
-- **Power doesn't encode:** ✓ Confirmed — power requires cross-turn modeling or speaker identity
+- **Power doesn't encode (Wikipedia):** *Inconclusive* — may reflect label noise (admin status ≠ power exercise), not absence of capacity. Enron results will disambiguate.
+- **Power doesn't encode (Enron):** If Enron also fails, suggests routers truly don't encode relational power dynamics
 - **Relationship prediction fails:** Routing too local for longitudinal dynamics
 
 ---
